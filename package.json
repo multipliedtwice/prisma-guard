@@ -1,0 +1,39 @@
+{
+  "name": "prisma-guard",
+  "version": "0.1.0",
+  "description": "Prisma generator + runtime for input validation, query shape enforcement, and row-level tenant isolation",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./generator": "./dist/generator/index.js",
+    ".": {
+      "import": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
+    }
+  },
+  "bin": {
+    "prisma-guard": "./dist/generator/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/generator-helper": "^5.0.0 || ^6.0.0"
+  },
+  "peerDependencies": {
+    "zod": "^3.22.0",
+    "@prisma/client": "^5.0.0 || ^6.0.0"
+  },
+  "devDependencies": {
+    "@prisma/client": "^6.0.0",
+    "typescript": "^5.5.0",
+    "tsup": "^8.0.0",
+    "vitest": "^2.0.0",
+    "zod": "^3.23.0"
+  }
+}

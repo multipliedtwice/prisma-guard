@@ -1,11 +1,17 @@
 {
   "name": "prisma-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Prisma generator + runtime for input validation, query shape enforcement, and row-level tenant isolation",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "exports": {
-    "./generator": "./dist/generator/index.js",
+    "./generator": {
+      "import": "./dist/generator/index.js",
+      "types": "./dist/generator/index.d.ts"
+    },
     ".": {
       "import": "./dist/runtime/index.js",
       "types": "./dist/runtime/index.d.ts"
@@ -19,21 +25,30 @@
   ],
   "scripts": {
     "build": "tsup",
+    "coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build",
     "test": "vitest",
+    "test:e2e": "npm run build && vitest -c vitest.config.e2e.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/generator-helper": "^5.0.0 || ^6.0.0"
+    "@prisma/generator-helper": "^6.0.0 || ^7.0.0"
   },
   "peerDependencies": {
-    "zod": "^3.22.0",
-    "@prisma/client": "^5.0.0 || ^6.0.0"
+    "@prisma/client": "^6.0.0 || ^7.0.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@prisma/client": "^6.0.0",
-    "typescript": "^5.5.0",
+    "@prisma/client": "^7.4.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@types/node": "^25.0.0",
+    "@vitest/coverage-v8": "^4.0.0",
+    "prisma": "^7.4.0",
+    "semantic-release": "^24.2.9",
     "tsup": "^8.0.0",
-    "vitest": "^2.0.0",
-    "zod": "^3.23.0"
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0",
+    "zod": "^4.3.0"
   }
 }

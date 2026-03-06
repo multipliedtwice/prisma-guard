@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator guard {
+  provider = "node ../../../../dist/generator/index.js"
+  output   = "./generated/guard"
+  onInvalidZod = "error"
+  onAmbiguousScope = "warn"
+  onMissingScopeContext = "error"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Tenant {
+  id   String @id @default(cuid())
+  name String
+
+  projects       Project[]
+  projectMembers ProjectMember[]
+  ambiguousA     AmbiguousLink[] @relation("A")
+  ambiguousB     AmbiguousLink[] @relation("B")
+
+  /// @scope-root
+  /// This model is a scope root.
+}
+
+model Project {
+  id        String @id @default(cuid())
+  tenantId  String
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+
+  /// @zod .min(1)
+  title     String
+
+  role      Role @default(USER)
+
+  members   ProjectMember[]
+}
+
+model ProjectMember {
+  id         String @id @default(cuid())
+  tenantId   String
+  tenant     Tenant @relation(fields: [tenantId], references: [id])
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id])
+
+  /// @zod .email()
+  email      String
+}
+
+model AmbiguousLink {
+  id        String @id @default(cuid())
+  tenantAId String
+  tenantBId String
+  tenantA   Tenant @relation("A", fields: [tenantAId], references: [id])
+  tenantB   Tenant @relation("B", fields: [tenantBId], references: [id])
+}

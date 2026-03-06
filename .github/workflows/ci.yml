@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+        prisma-version: ['6.8.0', '7.4.0']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Override Prisma version
+        if: matrix.prisma-version != '7.4.0'
+        run: |
+          npm install --save-dev prisma@${{ matrix.prisma-version }} @prisma/client@${{ matrix.prisma-version }}
+          npm install @prisma/generator-helper@${{ matrix.prisma-version }}
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      - run: npx vitest run --coverage
+
+      - name: Upload coverage to Codecov
+        if: matrix.node-version == 22 && matrix.prisma-version == '7.4.0'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - run: npm run test:e2e
+
+  smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm pack --pack-destination test/smoke
+
+      - name: Install smoke fixture deps
+        working-directory: test/smoke
+        run: |
+          npm install
+          npm install ./prisma-guard-*.tgz
+
+      - name: Generate Prisma client and guard
+        working-directory: test/smoke
+        run: npx prisma generate --schema schema.prisma
+
+      - name: Typecheck smoke fixture
+        working-directory: test/smoke
+        run: npx tsc --noEmit
+
+      - name: Run smoke test
+        working-directory: test/smoke
+        run: npx tsx smoke.ts
+
+  release:
+    needs: [test, smoke]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Release
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

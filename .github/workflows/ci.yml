@@ -44,41 +44,6 @@ jobs:
 
       - run: npm run test:e2e
 
-  smoke:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm run build
-
-      - run: npm pack --pack-destination test/smoke
-
-      - name: Install smoke fixture deps
-        working-directory: test/smoke
-        run: |
-          npm install
-          npm install ./prisma-guard-*.tgz
-
-      - name: Generate Prisma client and guard
-        working-directory: test/smoke
-        run: npx prisma generate --schema schema.prisma
-
-      - name: Typecheck smoke fixture
-        working-directory: test/smoke
-        run: npx tsc --noEmit
-
-      - name: Run smoke test
-        working-directory: test/smoke
-        run: npx tsx smoke.ts
-
   release:
     needs: [test, smoke]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'

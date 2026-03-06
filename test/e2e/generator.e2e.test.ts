@@ -24,10 +24,15 @@ const prismaBin =
     ? join(repoRoot, "node_modules", ".bin", "prisma.cmd")
     : join(repoRoot, "node_modules", ".bin", "prisma");
 
-async function setupTempDir() {
-  const dir = await mkdtemp(join(tmpdir(), "prisma-guard-e2e-"));
-  await mkdir(join(dir, "generated/guard"), { recursive: true });
-  return dir;
+let prismaMajorCache: number | undefined;
+
+async function getPrismaMajor() {
+  if (prismaMajorCache !== undefined) return prismaMajorCache;
+  const prismaPkg = JSON.parse(
+    await readText(join(repoRoot, "node_modules", "prisma", "package.json")),
+  ) as { version: string };
+  prismaMajorCache = Number(prismaPkg.version.split(".")[0]);
+  return prismaMajorCache;
 }
 
 function generatorBlock(overrides: Record<string, string> = {}) {
@@ -43,7 +48,34 @@ function generatorBlock(overrides: Record<string, string> = {}) {
   return `generator guard {\n${lines.join("\n")}\n}`;
 }
 
-const DATASOURCE_BLOCK = `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}`;
+function datasourceBlock(prismaMajor: number) {
+  if (prismaMajor >= 7) {
+    return `datasource db {\n  provider = "sqlite"\n}`;
+  }
+  return `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}`;
+}
+
+async function setupTempDir() {
+  const dir = await mkdtemp(join(tmpdir(), "prisma-guard-e2e-"));
+  await mkdir(join(dir, "generated/guard"), { recursive: true });
+
+  const prismaMajor = await getPrismaMajor();
+
+  if (prismaMajor >= 7) {
+    const prismaConfig = `import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  schema: "./schema.prisma",
+  datasource: {
+    url: "file:./dev.db",
+  },
+});
+`;
+    await writeFile(join(dir, "prisma.config.ts"), prismaConfig, "utf-8");
+  }
+
+  return dir;
+}
 
 async function runGenerate(dir: string, schema: string) {
   const schemaPath = join(dir, "schema.prisma");
@@ -65,6 +97,17 @@ async function runGenerate(dir: string, schema: string) {
   });
 }
 
+async function makeSchema(body: string, overrides: Record<string, string> = {}) {
+  const prismaMajor = await getPrismaMajor();
+  return `
+${generatorBlock(overrides)}
+
+${datasourceBlock(prismaMajor)}
+
+${body.trim()}
+`.trim();
+}
+
 describe("e2e: prisma-guard generator", () => {
   it(
     "emits scope/type/enum/zod outputs via prisma generate and TS typechecks",
@@ -79,11 +122,7 @@ describe("e2e: prisma-guard generator", () => {
         DATABASE_URL: "file:./dev.db",
       };
 
-      const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+      const schema = await makeSchema(`
 enum Role {
   USER
   ADMIN
@@ -131,7 +170,7 @@ model AmbiguousLink {
   tenantA   Tenant @relation("A", fields: [tenantAId], references: [id])
   tenantB   Tenant @relation("B", fields: [tenantBId], references: [id])
 }
-`.trim();
+`);
 
       const gen = await runGenerate(dir, schema);
       if (gen.code !== 0) {
@@ -198,18 +237,17 @@ model AmbiguousLink {
   it("emits GUARD_CONFIG with onMissingScopeContext from generator config", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock({ onMissingScopeContext: '"warn"' })}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(
+      `
 model Tenant {
   id   String @id @default(cuid())
   name String
 
   /// @scope-root
 }
-`.trim();
+`,
+      { onMissingScopeContext: '"warn"' },
+    );
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -225,11 +263,8 @@ model Tenant {
   it("fails on ambiguous scope when onAmbiguousScope is error", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock({ onAmbiguousScope: '"error"' })}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(
+      `
 /// @scope-root
 model Tenant {
   id   String @id @default(cuid())
@@ -246,7 +281,9 @@ model AmbiguousLink {
   tenantA   Tenant @relation("A", fields: [tenantAId], references: [id])
   tenantB   Tenant @relation("B", fields: [tenantBId], references: [id])
 }
-`.trim();
+`,
+      { onAmbiguousScope: '"error"' },
+    );
 
     const gen = await runGenerate(dir, schema);
     expect(gen.code).not.toBe(0);
@@ -256,17 +293,13 @@ model AmbiguousLink {
   it("fails on invalid @zod directive when onInvalidZod is error", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model Item {
   id    String @id @default(cuid())
   /// @zod .unknownMethod()
   name  String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     expect(gen.code).not.toBe(0);
@@ -276,17 +309,13 @@ model Item {
   it("fails on empty @zod directive when onInvalidZod is error", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model Item {
   id    String @id @default(cuid())
   /// @zod
   name  String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     expect(gen.code).not.toBe(0);
@@ -296,18 +325,14 @@ model Item {
   it("fails on multiple @zod directives on same field", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model Item {
   id    String @id @default(cuid())
   /// @zod .min(1)
   /// @zod .max(100)
   name  String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     expect(gen.code).not.toBe(0);
@@ -317,16 +342,15 @@ model Item {
   it("fails on invalid generator config value", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock({ onInvalidZod: '"crash"' })}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(
+      `
 model Item {
   id   String @id @default(cuid())
   name String
 }
-`.trim();
+`,
+      { onInvalidZod: '"crash"' },
+    );
 
     const gen = await runGenerate(dir, schema);
     expect(gen.code).not.toBe(0);
@@ -336,16 +360,12 @@ model Item {
   it("emits empty ZOD_CHAINS when no @zod directives present", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model Item {
   id   String @id @default(cuid())
   name String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -361,16 +381,12 @@ model Item {
   it("emits ScopeRoot as never when no @scope-root models exist", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model Item {
   id   String @id @default(cuid())
   name String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -387,11 +403,7 @@ model Item {
   it("emits correct type map field metadata", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 enum Status {
   ACTIVE
   INACTIVE
@@ -407,7 +419,7 @@ model Record {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -439,11 +451,7 @@ model Record {
   it("handles chained @zod directives", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 model User {
   id    String @id @default(cuid())
   /// @zod .email().max(255)
@@ -453,7 +461,7 @@ model User {
   /// @zod .int().positive()
   age   Int
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -471,11 +479,7 @@ model User {
   it("emits multiple scope roots and maps models to correct roots", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 /// @scope-root
 model Company {
   id   String @id @default(cuid())
@@ -505,7 +509,7 @@ model Task {
   user   User @relation(fields: [userId], references: [id])
   title  String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -528,11 +532,8 @@ model Task {
   it("succeeds with onAmbiguousScope ignore + onInvalidZod warn, excludes ambiguous model and invalid chain", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock({ onAmbiguousScope: '"ignore"', onInvalidZod: '"warn"' })}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(
+      `
 /// @scope-root
 model Tenant {
   id     String @id @default(cuid())
@@ -559,7 +560,9 @@ model Clean {
   /// @zod .min(1)
   good     String
 }
-`.trim();
+`,
+      { onAmbiguousScope: '"ignore"', onInvalidZod: '"warn"' },
+    );
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {
@@ -580,11 +583,7 @@ model Clean {
   it("excludes indirect FK chains from scope map", async () => {
     const dir = await setupTempDir();
 
-    const schema = `
-${generatorBlock()}
-
-${DATASOURCE_BLOCK}
-
+    const schema = await makeSchema(`
 /// @scope-root
 model Org {
   id    String @id @default(cuid())
@@ -605,7 +604,7 @@ model Task {
   team   Team @relation(fields: [teamId], references: [id])
   title  String
 }
-`.trim();
+`);
 
     const gen = await runGenerate(dir, schema);
     if (gen.code !== 0) {

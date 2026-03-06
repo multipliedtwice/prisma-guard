@@ -27,6 +27,18 @@ const prismaBin =
 async function setupTempDir() {
   const dir = await mkdtemp(join(tmpdir(), "prisma-guard-e2e-"));
   await mkdir(join(dir, "generated/guard"), { recursive: true });
+
+  const prismaConfig = `import { defineConfig } from "prisma/config";
+
+export default defineConfig({
+  schema: "./schema.prisma",
+  datasource: {
+    url: "file:./dev.db",
+  },
+});
+`;
+  await writeFile(join(dir, "prisma.config.ts"), prismaConfig, "utf-8");
+
   return dir;
 }
 

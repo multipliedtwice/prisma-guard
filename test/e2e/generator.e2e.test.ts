@@ -27,18 +27,6 @@ const prismaBin =
 async function setupTempDir() {
   const dir = await mkdtemp(join(tmpdir(), "prisma-guard-e2e-"));
   await mkdir(join(dir, "generated/guard"), { recursive: true });
-
-  const prismaConfig = `import { defineConfig } from "prisma/config";
-
-export default defineConfig({
-  schema: "./schema.prisma",
-  datasource: {
-    url: "file:./dev.db",
-  },
-});
-`;
-  await writeFile(join(dir, "prisma.config.ts"), prismaConfig, "utf-8");
-
   return dir;
 }
 
@@ -55,7 +43,7 @@ function generatorBlock(overrides: Record<string, string> = {}) {
   return `generator guard {\n${lines.join("\n")}\n}`;
 }
 
-const DATASOURCE_BLOCK = `datasource db {\n  provider = "sqlite"\n}`;
+const DATASOURCE_BLOCK = `datasource db {\n  provider = "sqlite"\n  url      = env("DATABASE_URL")\n}`;
 
 async function runGenerate(dir: string, schema: string) {
   const schemaPath = join(dir, "schema.prisma");
@@ -65,8 +53,10 @@ async function runGenerate(dir: string, schema: string) {
   const pathSep = process.platform === "win32" ? ";" : ":";
 
   const env = {
+    ...process.env,
     PATH: `${binDir}${pathSep}${process.env.PATH}`,
     NODE_PATH: join(repoRoot, "node_modules"),
+    DATABASE_URL: "file:./dev.db",
   };
 
   return run(prismaBin, ["generate", "--schema", schemaPath], {
@@ -83,8 +73,10 @@ describe("e2e: prisma-guard generator", () => {
       const binDir = join(repoRoot, "node_modules", ".bin");
       const pathSep = process.platform === "win32" ? ";" : ":";
       const env = {
+        ...process.env,
         PATH: `${binDir}${pathSep}${process.env.PATH}`,
         NODE_PATH: join(repoRoot, "node_modules"),
+        DATABASE_URL: "file:./dev.db",
       };
 
       const schema = `

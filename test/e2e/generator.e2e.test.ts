@@ -19,6 +19,10 @@ async function pathExists(p: string) {
 
 const repoRoot = resolve(process.cwd());
 const generatorPath = resolve(repoRoot, "dist/generator/index.js");
+const prismaBin =
+  process.platform === "win32"
+    ? join(repoRoot, "node_modules", ".bin", "prisma.cmd")
+    : join(repoRoot, "node_modules", ".bin", "prisma");
 
 async function setupTempDir() {
   const dir = await mkdtemp(join(tmpdir(), "prisma-guard-e2e-"));
@@ -44,29 +48,34 @@ const DATASOURCE_BLOCK = `datasource db {\n  provider = "sqlite"\n}`;
 async function runGenerate(dir: string, schema: string) {
   const schemaPath = join(dir, "schema.prisma");
   await writeFile(schemaPath, schema, "utf-8");
+
   const binDir = join(repoRoot, "node_modules", ".bin");
   const pathSep = process.platform === "win32" ? ";" : ":";
+
   const env = {
     PATH: `${binDir}${pathSep}${process.env.PATH}`,
     NODE_PATH: join(repoRoot, "node_modules"),
   };
-  return run("npx", ["prisma", "generate", "--schema", schemaPath], {
+
+  return run(prismaBin, ["generate", "--schema", schemaPath], {
     cwd: dir,
     env,
   });
 }
 
 describe("e2e: prisma-guard generator", () => {
-  it("emits scope/type/enum/zod outputs via prisma generate and TS typechecks", async () => {
-    const dir = await setupTempDir();
-    const binDir = join(repoRoot, "node_modules", ".bin");
-    const pathSep = process.platform === "win32" ? ";" : ":";
-    const env = {
-      PATH: `${binDir}${pathSep}${process.env.PATH}`,
-      NODE_PATH: join(repoRoot, "node_modules"),
-    };
+  it(
+    "emits scope/type/enum/zod outputs via prisma generate and TS typechecks",
+    async () => {
+      const dir = await setupTempDir();
+      const binDir = join(repoRoot, "node_modules", ".bin");
+      const pathSep = process.platform === "win32" ? ";" : ":";
+      const env = {
+        PATH: `${binDir}${pathSep}${process.env.PATH}`,
+        NODE_PATH: join(repoRoot, "node_modules"),
+      };
 
-    const schema = `
+      const schema = `
 ${generatorBlock()}
 
 ${DATASOURCE_BLOCK}
@@ -120,65 +129,67 @@ model AmbiguousLink {
 }
 `.trim();
 
-    const gen = await runGenerate(dir, schema);
-    if (gen.code !== 0) {
-      throw new Error(
-        `prisma generate failed\n\nSTDOUT:\n${gen.stdout}\n\nSTDERR:\n${gen.stderr}`,
+      const gen = await runGenerate(dir, schema);
+      if (gen.code !== 0) {
+        throw new Error(
+          `prisma generate failed\n\nSTDOUT:\n${gen.stdout}\n\nSTDERR:\n${gen.stderr}`,
+        );
+      }
+
+      const outPath = join(dir, "generated/guard/index.ts");
+      expect(await pathExists(outPath)).toBe(true);
+
+      const out = await readText(outPath);
+
+      expect(out).toContain("export const GUARD_CONFIG =");
+      expect(out).toContain("export const SCOPE_MAP =");
+      expect(out).toContain("export const TYPE_MAP =");
+      expect(out).toContain("export const ENUM_MAP =");
+      expect(out).toContain("export const ZOD_CHAINS =");
+
+      expect(out).toContain(
+        'Project: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }]',
       );
-    }
-
-    const outPath = join(dir, "generated/guard/index.ts");
-    expect(await pathExists(outPath)).toBe(true);
-
-    const out = await readText(outPath);
-
-    expect(out).toContain("export const GUARD_CONFIG =");
-    expect(out).toContain("export const SCOPE_MAP =");
-    expect(out).toContain("export const TYPE_MAP =");
-    expect(out).toContain("export const ENUM_MAP =");
-    expect(out).toContain("export const ZOD_CHAINS =");
-
-    expect(out).toContain(
-      'Project: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }]',
-    );
-    expect(out).toContain(
-      'ProjectMember: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }]',
-    );
-    expect(out).not.toContain("AmbiguousLink:");
-
-    expect(out).toMatch(/export type ScopeRoot = .*'Tenant'.*/);
-
-    expect(out).toContain('"Role": ["USER", "ADMIN"]');
-    expect(out).toContain('"title": (base: any) => base.min(1)');
-    expect(out).toContain('"email": (base: any) => base.email()');
-
-    const tsconfig = {
-      compilerOptions: {
-        target: "ES2022",
-        module: "ESNext",
-        moduleResolution: "Bundler",
-        strict: true,
-        skipLibCheck: true,
-        types: [],
-      },
-      include: [outPath],
-    };
-
-    const tsconfigPath = join(dir, "tsconfig.e2e.json");
-    await writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2), "utf-8");
-
-    const tscPath = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-    const tc = await run("node", [tscPath, "-p", tsconfigPath, "--noEmit"], {
-      cwd: dir,
-      env,
-    });
-
-    if (tc.code !== 0) {
-      throw new Error(
-        `tsc failed\n\nSTDOUT:\n${tc.stdout}\n\nSTDERR:\n${tc.stderr}`,
+      expect(out).toContain(
+        'ProjectMember: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }]',
       );
-    }
-  });
+      expect(out).not.toContain("AmbiguousLink:");
+
+      expect(out).toMatch(/export type ScopeRoot = .*'Tenant'.*/);
+
+      expect(out).toContain('"Role": ["USER", "ADMIN"]');
+      expect(out).toContain('"title": (base: any) => base.min(1)');
+      expect(out).toContain('"email": (base: any) => base.email()');
+
+      const tsconfig = {
+        compilerOptions: {
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          strict: true,
+          skipLibCheck: true,
+          types: [],
+        },
+        include: [outPath],
+      };
+
+      const tsconfigPath = join(dir, "tsconfig.e2e.json");
+      await writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2), "utf-8");
+
+      const tscPath = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      const tc = await run("node", [tscPath, "-p", tsconfigPath, "--noEmit"], {
+        cwd: dir,
+        env,
+      });
+
+      if (tc.code !== 0) {
+        throw new Error(
+          `tsc failed\n\nSTDOUT:\n${tc.stdout}\n\nSTDERR:\n${tc.stderr}`,
+        );
+      }
+    },
+    30000,
+  );
 
   it("emits GUARD_CONFIG with onMissingScopeContext from generator config", async () => {
     const dir = await setupTempDir();

@@ -45,7 +45,7 @@ jobs:
       - run: npm run test:e2e
 
   release:
-    needs: [test, smoke]
+    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

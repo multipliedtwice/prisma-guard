@@ -62,7 +62,21 @@ export function createSchemaBuilder(
     return result
   }
 
+  function buildBaseFieldSchema(model: string, field: string): z.ZodTypeAny {
+    const modelFields = typeMap[model]
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+    const fieldMeta = modelFields[field]
+    if (!fieldMeta) throw new ShapeError(`Unknown field "${field}" on model "${model}"`)
+
+    return createBaseType(fieldMeta, enumMap)
+  }
+
   function buildInputSchema(model: string, opts: InputOpts): InputSchema {
+    if (opts.pick && opts.omit) {
+      throw new ShapeError('InputOpts cannot define both "pick" and "omit"')
+    }
+
     const mode = opts.mode ?? 'create'
     const allowNull = opts.allowNull ?? false
 
@@ -95,8 +109,7 @@ export function createSchemaBuilder(
       let fieldSchema: z.ZodTypeAny
 
       if (opts.refine?.[name]) {
-        const freshBase = createBaseType(fieldMeta, enumMap)
-        fieldSchema = opts.refine[name](freshBase)
+        fieldSchema = opts.refine[name](buildBaseFieldSchema(model, name))
       } else {
         fieldSchema = buildFieldSchema(model, name)
       }
@@ -134,7 +147,16 @@ export function createSchemaBuilder(
     }
   }
 
-  function buildModelSchema(model: string, opts: ModelOpts, depth = 0, maxDepth?: number): z.ZodObject<any> {
+  function buildModelSchema(
+    model: string,
+    opts: ModelOpts,
+    depth = 0,
+    maxDepth?: number,
+  ): z.ZodObject<any> {
+    if (opts.pick && opts.omit) {
+      throw new ShapeError('ModelOpts cannot define both "pick" and "omit"')
+    }
+
     const effectiveMaxDepth = maxDepth ?? opts.maxDepth ?? DEFAULT_MAX_DEPTH
     if (depth > effectiveMaxDepth) {
       throw new ShapeError(`Maximum include depth (${effectiveMaxDepth}) exceeded`)
@@ -190,7 +212,12 @@ export function createSchemaBuilder(
       if (!typeMap[relatedModel]) {
         throw new ShapeError(`Related model "${relatedModel}" not found in type map`)
       }
-      let relSchema: z.ZodTypeAny = buildModelSchema(relatedModel, relOpts, depth + 1, effectiveMaxDepth)
+      let relSchema: z.ZodTypeAny = buildModelSchema(
+        relatedModel,
+        relOpts,
+        depth + 1,
+        effectiveMaxDepth,
+      )
       if (fieldMeta.isList) {
         relSchema = z.array(relSchema)
       } else if (!fieldMeta.isRequired) {

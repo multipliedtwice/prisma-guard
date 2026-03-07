@@ -19,8 +19,8 @@ export class ShapeError extends Error {
 export class CallerError extends Error {
   readonly status = 400
   readonly code = 'CALLER_UNKNOWN'
-  constructor(caller: string, options?: ErrorOptions) {
-    super(`Unknown caller: ${caller}`, options)
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'CallerError'
   }
 }

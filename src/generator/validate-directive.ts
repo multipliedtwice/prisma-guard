@@ -10,11 +10,25 @@ const ALLOWED_ZOD_METHODS = new Set([
   'nonempty',
 ])
 
+const METHOD_ARITY: Record<string, [number, number]> = {
+  min: [1, 2], max: [1, 2], length: [1, 2],
+  email: [0, 1], url: [0, 1], uuid: [0, 1], cuid: [0, 1], cuid2: [0, 1], ulid: [0, 1],
+  trim: [0, 0], toLowerCase: [0, 0], toUpperCase: [0, 0],
+  startsWith: [1, 2], endsWith: [1, 2], includes: [1, 2],
+  datetime: [0, 1], ip: [0, 1], cidr: [0, 1], date: [0, 1], time: [0, 1], duration: [0, 1],
+  base64: [0, 1], nanoid: [0, 1], emoji: [0, 1],
+  int: [0, 1], positive: [0, 1], nonnegative: [0, 1], negative: [0, 1], nonpositive: [0, 1],
+  finite: [0, 1], safe: [0, 1],
+  multipleOf: [1, 2], step: [1, 2],
+  gt: [1, 2], gte: [1, 2], lt: [1, 2], lte: [1, 2],
+  nonempty: [0, 1],
+}
+
 const MAX_DIRECTIVE_LENGTH = 1024
 const MAX_CHAIN_DEPTH = 20
 
 type ValidationResult =
-  | { valid: true }
+  | { valid: true; methods: string[] }
   | { valid: false; reason: string }
 
 export function validateDirective(raw: string): ValidationResult {
@@ -32,6 +46,7 @@ export function validateDirective(raw: string): ValidationResult {
 
   let pos = 0
   let chainCount = 0
+  const methods: string[] = []
 
   function peek(): string {
     return input[pos] ?? ''
@@ -55,7 +70,7 @@ export function validateDirective(raw: string): ValidationResult {
       const ch = input[pos]
       if (ch === '\\') {
         const next = input[pos + 1]
-        if (next === "'" || next === '"') {
+        if (next === "'" || next === '"' || next === '\\') {
           pos += 2
           continue
         }
@@ -79,6 +94,9 @@ export function validateDirective(raw: string): ValidationResult {
     if (pos >= input.length || !/[0-9]/.test(peek())) {
       pos = start
       return null
+    }
+    if (peek() === '0' && pos + 1 < input.length && /[0-9]/.test(input[pos + 1])) {
+      return { valid: false, reason: 'Leading zeros not allowed in numbers' }
     }
     while (pos < input.length && /[0-9]/.test(peek())) advance()
     if (peek() === '.') {
@@ -132,6 +150,8 @@ export function validateDirective(raw: string): ValidationResult {
       skipWhitespace()
       while (peek() === ',') {
         advance()
+        skipWhitespace()
+        if (peek() === ']') break
         const elemErr = parseArg()
         if (elemErr) return elemErr
         skipWhitespace()
@@ -161,19 +181,15 @@ export function validateDirective(raw: string): ValidationResult {
         return null
       }
     }
-    if (input.startsWith('null', pos)) {
-      const after = input[pos + 4]
-      if (!after || !/[a-zA-Z0-9_]/.test(after)) {
-        pos += 4
-        return null
-      }
-    }
 
     if (input.startsWith('NaN', pos)) {
       return { valid: false, reason: 'NaN not allowed' }
     }
     if (input.startsWith('Infinity', pos)) {
       return { valid: false, reason: 'Infinity not allowed' }
+    }
+    if (input.startsWith('null', pos)) {
+      return { valid: false, reason: 'null not allowed as argument value' }
     }
     if (ch === '+') {
       return { valid: false, reason: '"+" prefix not allowed on numbers' }
@@ -217,14 +233,19 @@ export function validateDirective(raw: string): ValidationResult {
 
     skipWhitespace()
 
+    let argCount = 0
     if (peek() !== ')') {
       const argErr = parseArg()
       if (argErr) return argErr
+      argCount = 1
       skipWhitespace()
       while (peek() === ',') {
         advance()
+        skipWhitespace()
+        if (peek() === ')') break
         const nextArgErr = parseArg()
         if (nextArgErr) return nextArgErr
+        argCount++
         skipWhitespace()
       }
     }
@@ -234,6 +255,18 @@ export function validateDirective(raw: string): ValidationResult {
     }
     advance()
 
+    const arity = METHOD_ARITY[ident]
+    if (arity) {
+      const [minArgs, maxArgs] = arity
+      if (argCount < minArgs || argCount > maxArgs) {
+        if (minArgs === maxArgs) {
+          return { valid: false, reason: `Method "${ident}" expects ${minArgs} argument(s), got ${argCount}` }
+        }
+        return { valid: false, reason: `Method "${ident}" expects ${minArgs}-${maxArgs} arguments, got ${argCount}` }
+      }
+    }
+
+    methods.push(ident)
     chainCount++
     if (chainCount > MAX_CHAIN_DEPTH) {
       return { valid: false, reason: 'Directive exceeds maximum chain depth' }
@@ -244,5 +277,5 @@ export function validateDirective(raw: string): ValidationResult {
     return { valid: false, reason: 'No method calls found' }
   }
 
-  return { valid: true }
+  return { valid: true, methods }
 }

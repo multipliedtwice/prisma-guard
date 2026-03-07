@@ -300,12 +300,12 @@ describe('method validation', () => {
     ).toThrow('not allowed for method "count"')
   })
 
-  it('rejects orderBy on count', () => {
-    expect(() =>
-      qb().buildQuerySchema('User', 'count', {
-        orderBy: { email: true },
-      }),
-    ).toThrow('not allowed for method "count"')
+  it('allows orderBy on count', () => {
+    const schema = qb().buildQuerySchema('User', 'count', {
+      orderBy: { email: true },
+    })
+    const result = schema.parse({ orderBy: { email: 'asc' } })
+    expect(result.orderBy).toEqual({ email: 'asc' })
   })
 
   it('rejects take on findUnique', () => {
@@ -376,7 +376,7 @@ describe('caller map', () => {
     const schema = qb().buildQuerySchema('User', 'findMany', {
       '/admin': { where: { email: { contains: true } } },
     })
-    expect(() => schema.parse({})).toThrow(ShapeError)
+    expect(() => schema.parse({})).toThrow(CallerError)
   })
 
   it('throws ShapeError when body is not object', () => {

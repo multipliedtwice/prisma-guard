@@ -442,11 +442,11 @@ describe('query-builder coverage: caller matching', () => {
     expect(() => schema.parse({ caller: '/unknown/path' })).toThrow(CallerError)
   })
 
-  it('throws ShapeError for missing caller field', () => {
+  it('throws CallerError for missing caller field', () => {
     const schema = qb.buildQuerySchema('User', 'findMany', {
       '/admin/users': { where: { email: { contains: true } } },
     })
-    expect(() => schema.parse({ where: {} })).toThrow(ShapeError)
+    expect(() => schema.parse({ where: {} })).toThrow(CallerError)
   })
 
   it('throws ShapeError when body is not an object (caller mode)', () => {
@@ -456,12 +456,12 @@ describe('query-builder coverage: caller matching', () => {
     expect(() => schema.parse('string-body')).toThrow(ShapeError)
   })
 
-  it('throws ShapeError when caller matches multiple patterns', () => {
+  it('throws CallerError when caller matches multiple patterns', () => {
     const schema = qb.buildQuerySchema('User', 'findMany', {
       '/org/:orgId/users': { where: { email: { contains: true } } },
       '/org/:orgId/:action': { where: { email: { contains: true } } },
     })
-    expect(() => schema.parse({ caller: '/org/123/users' })).toThrow(ShapeError)
+    expect(() => schema.parse({ caller: '/org/123/users' })).toThrow(CallerError)
   })
 
   it('matches pattern callers with :param segments', () => {

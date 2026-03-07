@@ -19,9 +19,12 @@ const CREATE_OPS = new Set([
   'create', 'createMany', 'createManyAndReturn',
 ])
 
-const MUTATION_WITH_WHERE_OPS = new Set([
-  'update', 'updateMany', 'updateManyAndReturn',
-  'delete', 'deleteMany',
+const UNIQUE_MUTATION_OPS = new Set([
+  'update', 'delete',
+])
+
+const MULTI_MUTATION_OPS = new Set([
+  'updateMany', 'updateManyAndReturn', 'deleteMany',
 ])
 
 function buildAndConditions(
@@ -33,24 +36,41 @@ function buildAndConditions(
   return { AND: conditions }
 }
 
+function buildScopedUniqueWhere(
+  existingWhere: Record<string, unknown> | undefined,
+  conditions: Record<string, unknown>[],
+): Record<string, unknown> {
+  if (!existingWhere) {
+    return conditions.length === 1 ? conditions[0] : { AND: conditions }
+  }
+  const { AND: existingAnd, ...topLevel } = existingWhere
+  const allConditions: unknown[] = []
+  if (existingAnd !== undefined) {
+    if (Array.isArray(existingAnd)) {
+      allConditions.push(...existingAnd)
+    } else {
+      allConditions.push(existingAnd)
+    }
+  }
+  allConditions.push(...conditions)
+  return { ...topLevel, AND: allConditions }
+}
+
 function isComparableScopeValue(v: unknown): v is string | number | bigint {
   const t = typeof v
   return t === 'string' || t === 'number' || t === 'bigint'
 }
 
-/**
- * Compares two scope values using string coercion.
- *
- * This intentionally treats numeric strings, numbers, and bigints as equal
- * when their string representations match (e.g. `1`, `"1"`, and `1n` are
- * all considered equal). This accommodates Prisma's type coercion behavior
- * where FK values may arrive as different JS types depending on the database
- * driver and adapter configuration.
- */
-function looseEqual(a: unknown, b: unknown): boolean {
+function looseEqual(a: unknown, b: unknown, log?: GuardLogger, fk?: string): boolean {
   if (a === b) return true
   if (!isComparableScopeValue(a) || !isComparableScopeValue(b)) return false
-  return String(a) === String(b)
+  const eq = String(a) === String(b)
+  if (eq && log && fk) {
+    log.warn(
+      `prisma-guard: Scope value for "${fk}" matched via type coercion (${typeof a} ${String(a)} vs ${typeof b} ${String(b)}). Consider normalizing types in the context function.`,
+    )
+  }
+  return eq
 }
 
 function buildFkSelect(fks: string[]): Record<string, true> {
@@ -83,14 +103,47 @@ function validateScopeValue(root: string, value: unknown): void {
   }
 }
 
-function stripScopeRelations(
+function enforceDataScope(
   data: Record<string, unknown>,
   scopes: readonly { readonly fk: string; readonly root: string; readonly relationName: string }[],
+  overrides: Record<string, unknown>,
+  log: GuardLogger,
+  model: string,
+  operation: string,
+  onScopeRelationWrite: 'error' | 'warn' | 'strip',
+  mode: 'create' | 'mutate',
 ): void {
   for (const scope of scopes) {
-    delete data[scope.relationName]
+    if (scope.fk in data) {
+      log.warn(
+        `prisma-guard: Scope FK "${scope.fk}" in ${operation} data for model "${model}" was overridden by scope context.`,
+      )
+    }
+    if (scope.relationName in data) {
+      if (onScopeRelationWrite === 'error') {
+        throw new ShapeError(
+          `Scope relation "${scope.relationName}" cannot be set directly in ${operation} data for model "${model}". The scope extension manages this relation automatically.`,
+        )
+      }
+      if (onScopeRelationWrite === 'warn') {
+        log.warn(
+          `prisma-guard: Scope relation "${scope.relationName}" in ${operation} data for model "${model}" was removed by scope context.`,
+        )
+      }
+      delete data[scope.relationName]
+    }
+  }
+  if (mode === 'create') {
+    Object.assign(data, overrides)
+  } else {
+    for (const scope of scopes) {
+      delete data[scope.fk]
+    }
   }
 }
+
+const VALID_FIND_UNIQUE_MODES = new Set(['verify', 'reject'])
+const VALID_ON_SCOPE_RELATION_WRITES = new Set(['error', 'warn', 'strip'])
 
 export function createScopeExtension<TRoots extends string>(
   scopeMap: ScopeMap,
@@ -99,7 +152,20 @@ export function createScopeExtension<TRoots extends string>(
   logger?: GuardLogger,
 ) {
   const log: GuardLogger = logger ?? { warn: (msg) => console.warn(msg) }
-  const findUniqueMode = guardConfig.findUniqueMode ?? 'verify'
+  const findUniqueMode = guardConfig.findUniqueMode ?? 'reject'
+  const onScopeRelationWrite = guardConfig.onScopeRelationWrite ?? 'error'
+
+  if (!VALID_FIND_UNIQUE_MODES.has(findUniqueMode)) {
+    throw new ShapeError(
+      `prisma-guard: Invalid findUniqueMode "${findUniqueMode}". Allowed: ${[...VALID_FIND_UNIQUE_MODES].join(', ')}`,
+    )
+  }
+
+  if (!VALID_ON_SCOPE_RELATION_WRITES.has(onScopeRelationWrite)) {
+    throw new ShapeError(
+      `prisma-guard: Invalid onScopeRelationWrite "${onScopeRelationWrite}". Allowed: ${[...VALID_ON_SCOPE_RELATION_WRITES].join(', ')}`,
+    )
+  }
 
   return {
     name: 'prisma-guard-scope',
@@ -122,7 +188,8 @@ export function createScopeExtension<TRoots extends string>(
           .map(s => s.root)
 
         const isMutation = CREATE_OPS.has(operation) ||
-          MUTATION_WITH_WHERE_OPS.has(operation) ||
+          UNIQUE_MUTATION_OPS.has(operation) ||
+          MULTI_MUTATION_OPS.has(operation) ||
           operation === 'upsert'
 
         if (missingRoots.length > 0) {
@@ -147,7 +214,7 @@ export function createScopeExtension<TRoots extends string>(
         )
 
         if (operation === 'upsert') {
-          throw new ShapeError(
+          throw new PolicyError(
             `Scoped model "${model}" cannot use upsert via extension. Handle upsert explicitly in route logic.`,
           )
         }
@@ -158,7 +225,7 @@ export function createScopeExtension<TRoots extends string>(
               `Scoped model "${model}" does not allow ${operation} via scope extension (findUniqueMode is "reject"). Use findFirst with explicit where conditions instead.`,
             )
           }
-          return handleFindUnique(args, query, conditions, scopes, operation)
+          return handleFindUnique(args, query, conditions, scopes, operation, log)
         }
 
         const nextArgs = { ...args }
@@ -179,6 +246,9 @@ export function createScopeExtension<TRoots extends string>(
         }
 
         if (CREATE_OPS.has(operation)) {
+          if (args.data === undefined || args.data === null) {
+            throw new ShapeError(`${operation} expects data`)
+          }
           if (operation === 'createMany' || operation === 'createManyAndReturn') {
             if (!Array.isArray(args.data)) {
               throw new ShapeError(`${operation} expects data to be an array`)
@@ -187,31 +257,40 @@ export function createScopeExtension<TRoots extends string>(
               throw new ShapeError(`${operation} received empty data array`)
             }
             nextArgs.data = args.data.map((d: any) => {
-              const item = { ...d, ...overrides }
-              stripScopeRelations(item, scopes)
+              const item = { ...d }
+              enforceDataScope(item, scopes, overrides, log, model, operation, onScopeRelationWrite, 'create')
               return item
             })
           } else {
-            if (args.data === undefined || args.data === null || typeof args.data !== 'object') {
+            if (typeof args.data !== 'object' || Array.isArray(args.data)) {
               throw new ShapeError(`${operation} expects data to be an object`)
             }
-            nextArgs.data = { ...args.data, ...overrides }
-            stripScopeRelations(nextArgs.data, scopes)
+            nextArgs.data = { ...args.data }
+            enforceDataScope(nextArgs.data, scopes, overrides, log, model, operation, onScopeRelationWrite, 'create')
           }
           return query(nextArgs)
         }
 
-        if (MUTATION_WITH_WHERE_OPS.has(operation)) {
+        if (UNIQUE_MUTATION_OPS.has(operation)) {
+          nextArgs.where = buildScopedUniqueWhere(args.where, conditions)
+          if (args.data !== undefined && args.data !== null) {
+            if (typeof args.data !== 'object' || Array.isArray(args.data)) {
+              throw new ShapeError(`${operation} expects data to be an object`)
+            }
+            nextArgs.data = { ...args.data }
+            enforceDataScope(nextArgs.data, scopes, overrides, log, model, operation, onScopeRelationWrite, 'mutate')
+          }
+          return query(nextArgs)
+        }
+
+        if (MULTI_MUTATION_OPS.has(operation)) {
           nextArgs.where = buildAndConditions(args.where, conditions)
           if (args.data !== undefined && args.data !== null) {
             if (typeof args.data !== 'object' || Array.isArray(args.data)) {
               throw new ShapeError(`${operation} expects data to be an object`)
             }
             nextArgs.data = { ...args.data }
-            for (const scope of scopes) {
-              delete nextArgs.data[scope.fk]
-            }
-            stripScopeRelations(nextArgs.data, scopes)
+            enforceDataScope(nextArgs.data, scopes, overrides, log, model, operation, onScopeRelationWrite, 'mutate')
           }
           return query(nextArgs)
         }
@@ -230,6 +309,7 @@ async function handleFindUnique(
   conditions: Record<string, unknown>[],
   scopes: readonly { readonly fk: string; readonly root: string; readonly relationName: string }[],
   operation: string,
+  log: GuardLogger,
 ): Promise<any> {
   const nextArgs = { ...args }
   const injectedFks: string[] = []
@@ -270,17 +350,16 @@ async function handleFindUnique(
     try {
       verifyResult = await query({ where, select: buildFkSelect(fks) })
     } catch (err: any) {
-      throw new ShapeError(
+      throw new PolicyError(
         `prisma-guard: Scope verification query failed for findUnique: ${err?.message ?? String(err)}`,
-        { cause: err },
       )
     }
 
     if (verifyResult === null) {
-      throw new ShapeError('prisma-guard: Scope verification query returned null for an existing findUnique result')
+      throw new PolicyError('prisma-guard: Scope verification query returned null for an existing findUnique result')
     }
     if (typeof verifyResult !== 'object' || verifyResult === null) {
-      throw new ShapeError('prisma-guard: Scope verification result must be an object')
+      throw new PolicyError('prisma-guard: Scope verification result must be an object')
     }
 
     verifyObj = verifyResult as Record<string, unknown>
@@ -293,7 +372,7 @@ async function handleFindUnique(
         `prisma-guard: Cannot verify scope on "${fk}" — field not present in verification result. Ensure FK fields are selectable.`,
       )
     }
-    if (!looseEqual(verifyObj[fk], value)) {
+    if (!looseEqual(verifyObj[fk], value, log, fk)) {
       if (operation === 'findUniqueOrThrow') {
         throw new PolicyError('Record not accessible in current scope')
       }

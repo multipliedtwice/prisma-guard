@@ -238,18 +238,11 @@ describe('query-builder branch gaps', () => {
       expect(() => schema.parse([1, 2])).toThrow(ShapeError)
     })
 
-    it('throws ShapeError when caller is missing', () => {
+    it('throws CallerError when caller is not a string', () => {
       const schema = qb().buildQuerySchema('User', 'findMany', {
         'route/a': { where: { name: { equals: true } } },
       })
-      expect(() => schema.parse({ where: {} })).toThrow(ShapeError)
-    })
-
-    it('throws ShapeError when caller is not a string', () => {
-      const schema = qb().buildQuerySchema('User', 'findMany', {
-        'route/a': { where: { name: { equals: true } } },
-      })
-      expect(() => schema.parse({ caller: 123 })).toThrow(ShapeError)
+      expect(() => schema.parse({ caller: 123 })).toThrow(CallerError)
     })
 
     it('throws CallerError for unknown caller', () => {
@@ -272,14 +265,14 @@ describe('query-builder branch gaps', () => {
       expect(result).toHaveProperty('where')
     })
 
-    it('throws ShapeError for ambiguous parameterized patterns', () => {
+    it('throws CallerError for ambiguous parameterized patterns', () => {
       const schema = qb().buildQuerySchema('User', 'findMany', {
         'users/:id/posts': { where: { name: { equals: true } } },
         'users/:userId/posts': { where: { name: { equals: true } } },
       })
       expect(() =>
         schema.parse({ caller: 'users/42/posts' }),
-      ).toThrow(ShapeError)
+      ).toThrow(CallerError)
     })
 
     it('does not match pattern with different segment count', () => {

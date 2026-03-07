@@ -33,7 +33,7 @@ describe('validateDirective', () => {
       ['.nanoid()'],
       ['.emoji()'],
     ])('accepts single method: %s', (input) => {
-      expect(validateDirective(input)).toEqual({ valid: true })
+      expect(validateDirective(input)).toMatchObject({ valid: true })
     })
 
     it.each([
@@ -44,7 +44,7 @@ describe('validateDirective', () => {
       ['.gt(0).lt(100)'],
       ['.gte(0).lte(100)'],
     ])('accepts chained methods: %s', (input) => {
-      expect(validateDirective(input)).toEqual({ valid: true })
+      expect(validateDirective(input)).toMatchObject({ valid: true })
     })
 
     it.each([
@@ -55,7 +55,7 @@ describe('validateDirective', () => {
       ['.min(1e2)'],
       ['.min(1e-2)'],
     ])('accepts numeric args: %s', (input) => {
-      expect(validateDirective(input)).toEqual({ valid: true })
+      expect(validateDirective(input)).toMatchObject({ valid: true })
     })
 
     it.each([
@@ -64,7 +64,7 @@ describe('validateDirective', () => {
       ['.endsWith("world")'],
       ['.includes("test")'],
     ])('accepts string args: %s', (input) => {
-      expect(validateDirective(input)).toEqual({ valid: true })
+      expect(validateDirective(input)).toMatchObject({ valid: true })
     })
 
     it.each([
@@ -72,47 +72,59 @@ describe('validateDirective', () => {
       ['.step(0.1)'],
       ['.length(10)'],
     ])('accepts single numeric arg methods: %s', (input) => {
-      expect(validateDirective(input)).toEqual({ valid: true })
+      expect(validateDirective(input)).toMatchObject({ valid: true })
     })
 
     it('accepts boolean true arg', () => {
-      expect(validateDirective('.nonempty(true)')).toEqual({ valid: true })
+      expect(validateDirective('.nonempty(true)')).toMatchObject({ valid: true })
     })
 
     it('accepts boolean false arg', () => {
-      expect(validateDirective('.nonempty(false)')).toEqual({ valid: true })
+      expect(validateDirective('.nonempty(false)')).toMatchObject({ valid: true })
     })
 
-    it('accepts null arg', () => {
-      expect(validateDirective('.nonempty(null)')).toEqual({ valid: true })
+    it('rejects null arg', () => {
+      const r = validateDirective('.nonempty(null)')
+      expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('null')
     })
 
     it('accepts array arg', () => {
-      expect(validateDirective('.min([1, 2, 3])')).toEqual({ valid: true })
+      expect(validateDirective('.min([1, 2, 3])')).toMatchObject({ valid: true })
     })
 
     it('accepts empty array arg', () => {
-      expect(validateDirective('.min([])')).toEqual({ valid: true })
+      expect(validateDirective('.min([])')).toMatchObject({ valid: true })
     })
 
-    it('accepts array with mixed types', () => {
-      expect(validateDirective(".min([1, 'a', true, null])")).toEqual({ valid: true })
+    it('accepts array with mixed types (no null)', () => {
+      expect(validateDirective(".min([1, 'a', true])")).toMatchObject({ valid: true })
+    })
+
+    it('rejects array with null element', () => {
+      const r = validateDirective(".min([1, 'a', true, null])")
+      expect(r.valid).toBe(false)
     })
 
     it('accepts whitespace between calls', () => {
-      expect(validateDirective('.min(1) .max(100)')).toEqual({ valid: true })
+      expect(validateDirective('.min(1) .max(100)')).toMatchObject({ valid: true })
     })
 
     it('accepts multiple args', () => {
-      expect(validateDirective('.min(1, "error")')).toEqual({ valid: true })
+      expect(validateDirective('.min(1, "error")')).toMatchObject({ valid: true })
     })
 
     it('accepts escaped quotes in strings', () => {
-      expect(validateDirective('.startsWith("he\\"llo")')).toEqual({ valid: true })
+      expect(validateDirective('.startsWith("he\\"llo")')).toMatchObject({ valid: true })
     })
 
     it('accepts escaped single quotes', () => {
-      expect(validateDirective(".startsWith('he\\'llo')")).toEqual({ valid: true })
+      expect(validateDirective(".startsWith('he\\'llo')")).toMatchObject({ valid: true })
+    })
+
+    it('returns parsed method names on valid result', () => {
+      const r = validateDirective('.min(1).max(100).trim()')
+      expect(r).toEqual({ valid: true, methods: ['min', 'max', 'trim'] })
     })
   })
 
@@ -263,6 +275,12 @@ describe('validateDirective', () => {
     it('rejects bare dot only', () => {
       const r = validateDirective('.')
       expect(r.valid).toBe(false)
+    })
+
+    it('rejects null as argument', () => {
+      const r = validateDirective('.min(null)')
+      expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('null')
     })
   })
 })

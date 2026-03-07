@@ -49,10 +49,13 @@ describe('createBaseType', () => {
     expect(() => schema.parse('abc')).toThrow()
   })
 
-  it('creates z.bigint() for BigInt', () => {
+  it('creates coercible type for BigInt', () => {
     const schema = createBaseType(field({ type: 'BigInt' }), ENUM_MAP)
     expect(schema.parse(BigInt(42))).toBe(BigInt(42))
-    expect(() => schema.parse(42)).toThrow()
+    expect(schema.parse(42)).toBe(BigInt(42))
+    expect(schema.parse('42')).toBe(BigInt(42))
+    expect(() => schema.parse('abc')).toThrow()
+    expect(() => schema.parse(3.14)).toThrow()
   })
 
   it('creates z.boolean() for Boolean', () => {
@@ -62,10 +65,15 @@ describe('createBaseType', () => {
     expect(() => schema.parse('true')).toThrow()
   })
 
-  it('creates z.coerce.date() for DateTime', () => {
+  it('creates date type for DateTime', () => {
     const schema = createBaseType(field({ type: 'DateTime' }), ENUM_MAP)
-    const d = schema.parse('2024-01-01')
+    const d = schema.parse('2024-01-01T00:00:00Z')
     expect(d).toBeInstanceOf(Date)
+    expect(schema.parse('2024-01-01T12:30:00+05:00')).toBeInstanceOf(Date)
+    expect(schema.parse(new Date('2024-01-01'))).toBeInstanceOf(Date)
+    expect(() => schema.parse('2024-01-01')).toThrow()
+    expect(() => schema.parse(true)).toThrow()
+    expect(() => schema.parse(42)).toThrow()
   })
 
   it('creates z.unknown() for Json', () => {
@@ -186,6 +194,13 @@ describe('createOperatorSchema', () => {
       const optEnum = field({ type: 'Role', isEnum: true, isRequired: false })
       const schema = createOperatorSchema(optEnum, 'equals', ENUM_MAP)
       expect(schema.parse(null)).toBeNull()
+    })
+  })
+
+  describe('bytes operators', () => {
+    it('throws on any operator for Bytes type', () => {
+      const f = field({ type: 'Bytes' })
+      expect(() => createOperatorSchema(f, 'equals', ENUM_MAP)).toThrow('does not support filter operators')
     })
   })
 

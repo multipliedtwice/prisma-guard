@@ -1,25 +1,7 @@
 import { z } from 'zod'
 import type { FieldMeta, EnumMap } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
-
-const SCALAR_BASE: Record<string, () => z.ZodTypeAny> = {
-  String: () => z.string(),
-  Int: () => z.number().int(),
-  Float: () => z.number(),
-  Decimal: () => z.union([
-    z.number(),
-    z.string().regex(/^-?\d+(\.\d+)?$/),
-    z.custom<unknown>(v => typeof v === 'object' && v !== null && typeof (v as any).toFixed === 'function'),
-  ]),
-  BigInt: () => z.bigint(),
-  Boolean: () => z.boolean(),
-  DateTime: () => z.coerce.date(),
-  Json: () => z.unknown(),
-  Bytes: () => z.union([
-    z.string(),
-    z.custom<unknown>(v => v instanceof Uint8Array),
-  ]),
-}
+import { SCALAR_BASE } from '../shared/scalar-base.js'
 
 const SCALAR_OPERATORS: Record<string, Set<string>> = {
   String: new Set(['equals', 'not', 'contains', 'startsWith', 'endsWith', 'in', 'notIn']),
@@ -29,9 +11,25 @@ const SCALAR_OPERATORS: Record<string, Set<string>> = {
   BigInt: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
   Boolean: new Set(['equals', 'not']),
   DateTime: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
+  Bytes: new Set([]),
 }
 
+const SCALAR_LIST_OPERATORS = new Set(['has', 'hasEvery', 'hasSome', 'isEmpty', 'equals'])
+
 const ENUM_OPERATORS = new Set(['equals', 'not', 'in', 'notIn'])
+
+const NUMERIC_TYPES = new Set(['Int', 'Float', 'Decimal', 'BigInt'])
+const COMPARABLE_TYPES = new Set(['Int', 'Float', 'Decimal', 'BigInt', 'String', 'DateTime'])
+
+export { NUMERIC_TYPES, COMPARABLE_TYPES }
+
+export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
+  if (fieldMeta.isList) return [...SCALAR_LIST_OPERATORS]
+  if (fieldMeta.isEnum) return [...ENUM_OPERATORS]
+  const ops = SCALAR_OPERATORS[fieldMeta.type]
+  if (!ops) return []
+  return [...ops]
+}
 
 export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap): z.ZodTypeAny {
   let base: z.ZodTypeAny
@@ -57,11 +55,44 @@ export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap): z.ZodTyp
   return base
 }
 
+export function createScalarListOperatorSchema(
+  fieldMeta: FieldMeta,
+  operator: string,
+  enumMap: EnumMap,
+): z.ZodTypeAny {
+  if (!SCALAR_LIST_OPERATORS.has(operator)) {
+    throw new ShapeError(`Operator "${operator}" not supported for scalar list fields`)
+  }
+
+  if (operator === 'isEmpty') {
+    return z.boolean()
+  }
+
+  if (operator === 'equals') {
+    const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
+    const itemBase = createBaseType(itemMeta, enumMap)
+    return fieldMeta.isRequired ? z.array(itemBase) : z.union([z.array(itemBase), z.null()])
+  }
+
+  const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
+  const itemBase = createBaseType(itemMeta, enumMap)
+
+  if (operator === 'has') {
+    return !fieldMeta.isRequired ? z.union([itemBase, z.null()]) : itemBase
+  }
+
+  return z.array(itemBase)
+}
+
 export function createOperatorSchema(
   fieldMeta: FieldMeta,
   operator: string,
   enumMap: EnumMap,
 ): z.ZodTypeAny {
+  if (fieldMeta.isList) {
+    return createScalarListOperatorSchema(fieldMeta, operator, enumMap)
+  }
+
   if (fieldMeta.isEnum) {
     const values = enumMap[fieldMeta.type]
     if (!values || values.length === 0) {
@@ -83,6 +114,9 @@ export function createOperatorSchema(
   const supportedOps = SCALAR_OPERATORS[fieldMeta.type]
   if (!supportedOps) {
     throw new ShapeError(`Unknown scalar type for operator: ${fieldMeta.type}`)
+  }
+  if (supportedOps.size === 0) {
+    throw new ShapeError(`Type "${fieldMeta.type}" does not support filter operators`)
   }
   if (!supportedOps.has(operator)) {
     throw new ShapeError(`Operator "${operator}" not supported for type "${fieldMeta.type}"`)

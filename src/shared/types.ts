@@ -9,6 +9,7 @@ export interface FieldMeta {
   hasDefault: boolean
   isUpdatedAt: boolean
   isEnum?: boolean
+  isUnique?: boolean
 }
 
 export interface GuardLogger {
@@ -26,14 +27,16 @@ export type InputOpts = {
   | { pick?: never; omit?: never }
 )
 
-export interface ModelOpts {
-  pick?: string[]
-  omit?: string[]
+export type ModelOpts = {
   include?: Record<string, ModelOpts>
   _count?: true | Record<string, true>
   strict?: boolean
   maxDepth?: number
-}
+} & (
+  | { pick: string[]; omit?: never }
+  | { omit: string[]; pick?: never }
+  | { pick?: never; omit?: never }
+)
 
 export type QueryMethod =
   | 'findMany'
@@ -45,13 +48,23 @@ export type QueryMethod =
   | 'aggregate'
   | 'groupBy'
 
+export type MutationMethod =
+  | 'create'
+  | 'createMany'
+  | 'createManyAndReturn'
+  | 'update'
+  | 'updateMany'
+  | 'updateManyAndReturn'
+  | 'delete'
+  | 'deleteMany'
+
 export interface ShapeConfig {
   where?: Record<string, Record<string, true | unknown>>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, true>
   cursor?: Record<string, true>
-  take?: { max: number; default: number }
+  take?: { max: number; default?: number }
   skip?: true
   distinct?: string[]
   _count?: true | Record<string, true>
@@ -60,6 +73,7 @@ export interface ShapeConfig {
   _min?: Record<string, true>
   _max?: Record<string, true>
   by?: string[]
+  having?: Record<string, true>
 }
 
 export interface NestedIncludeArgs {
@@ -68,7 +82,7 @@ export interface NestedIncludeArgs {
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, true>
   cursor?: Record<string, true>
-  take?: { max: number; default: number }
+  take?: { max: number; default?: number }
   skip?: true
 }
 
@@ -77,7 +91,7 @@ export interface NestedSelectArgs {
   where?: Record<string, Record<string, true | unknown>>
   orderBy?: Record<string, true>
   cursor?: Record<string, true>
-  take?: { max: number; default: number }
+  take?: { max: number; default?: number }
   skip?: true
 }
 
@@ -95,13 +109,17 @@ export type ScopeMap = Record<string, readonly ScopeEntry[]>
 export type TypeMap = Record<string, Record<string, FieldMeta>>
 export type EnumMap = Record<string, readonly string[]>
 export type ZodChains = Record<string, Record<string, (base: any) => z.ZodTypeAny>>
+export type UniqueConstraint = readonly string[]
+export type UniqueMap = Record<string, readonly UniqueConstraint[]>
 
 export type MissingScopeContextMode = 'error' | 'warn' | 'ignore'
 export type FindUniqueMode = 'verify' | 'reject'
+export type OnScopeRelationWrite = 'error' | 'warn' | 'strip'
 
 export interface GuardGeneratedConfig {
   onMissingScopeContext: MissingScopeContextMode
   findUniqueMode?: FindUniqueMode
+  onScopeRelationWrite?: OnScopeRelationWrite
 }
 
 export interface GuardConfig {
@@ -110,6 +128,7 @@ export interface GuardConfig {
   enumMap: EnumMap
   zodChains: ZodChains
   guardConfig: GuardGeneratedConfig
+  uniqueMap?: UniqueMap
   logger?: GuardLogger
 }
 
@@ -121,4 +140,30 @@ export interface QuerySchema<TCtx = unknown> {
 export interface InputSchema {
   parse(data: unknown): Record<string, unknown>
   schema: z.ZodObject<any>
+}
+
+export interface GuardShape extends ShapeConfig {
+  data?: Record<string, true | unknown>
+}
+
+export type GuardShapeOrFn =
+  | GuardShape
+  | ((ctx: any) => GuardShape)
+
+export type GuardInput =
+  | GuardShapeOrFn
+  | Record<string, GuardShapeOrFn>
+
+type GuardableMethodName = QueryMethod | MutationMethod
+
+type ExtractReturn<T, K extends string> =
+  K extends keyof T
+    ? T[K] extends (...args: any[]) => infer R ? R : never
+    : never
+
+export type GuardedModel<TDelegate> = {
+  [K in GuardableMethodName as K extends keyof TDelegate ? K : never]:
+    ExtractReturn<TDelegate, K> extends never
+      ? never
+      : (body: unknown) => ExtractReturn<TDelegate, K>
 }

@@ -30,6 +30,7 @@ function makeGuard(
     },
     guardConfig: {
       onMissingScopeContext: opts.onMissingScopeContext ?? "error",
+      findUniqueMode: "verify",
     },
     logger: opts.logger,
   });
@@ -366,7 +367,7 @@ describe("e2e: runtime scope extension", () => {
       expect(out).toBeNull();
     });
 
-    it("throws ShapeError when verification query returns null", async () => {
+    it("throws PolicyError when verification query returns null", async () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "t1" }));
       let n = 0;
@@ -379,10 +380,10 @@ describe("e2e: runtime scope extension", () => {
           args: { where: { id: "p1" } },
           query,
         }),
-      ).rejects.toThrow(ShapeError);
+      ).rejects.toThrow(PolicyError);
     });
 
-    it("throws ShapeError when verification query throws", async () => {
+    it("throws PolicyError when verification query throws", async () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "t1" }));
       let n = 0;
@@ -398,7 +399,7 @@ describe("e2e: runtime scope extension", () => {
           args: { where: { id: "p1" } },
           query,
         }),
-      ).rejects.toThrow(ShapeError);
+      ).rejects.toThrow(PolicyError);
     });
 
     it("throws PolicyError when verification needed but where is invalid", async () => {
@@ -569,7 +570,8 @@ describe("e2e: runtime scope extension", () => {
       });
 
       expect(calls[0].where).toEqual({
-        AND: [{ id: "p1" }, { tenantId: "t1" }],
+        id: "p1",
+        AND: [{ tenantId: "t1" }],
       });
       expect(calls[0].data).toEqual({ title: "updated" });
       expect(calls[0].data.tenantId).toBeUndefined();
@@ -632,7 +634,8 @@ describe("e2e: runtime scope extension", () => {
       });
 
       expect(calls[0].where).toEqual({
-        AND: [{ id: "p1" }, { tenantId: "t1" }],
+        id: "p1",
+        AND: [{ tenantId: "t1" }],
       });
     });
 
@@ -673,7 +676,7 @@ describe("e2e: runtime scope extension", () => {
   });
 
   describe("upsert", () => {
-    it("throws ShapeError for upsert on scoped model", () => {
+    it("throws PolicyError for upsert on scoped model", () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "t1" }));
       const { query } = makeQueryRecorder();
@@ -689,7 +692,7 @@ describe("e2e: runtime scope extension", () => {
           },
           query,
         }),
-      ).toThrow(ShapeError);
+      ).toThrow(PolicyError);
     });
   });
 
@@ -1003,10 +1006,10 @@ describe("e2e: runtime scope extension", () => {
   });
 
   describe("data shape validation on scoped mutations", () => {
-    it("throws ShapeError on createMany with non-array data", () => {
+    it("rejects non-array createMany data", () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "t1" }));
-      const { query } = makeQueryRecorder();
+      const { query } = makeQueryRecorder({ count: 1 });
 
       expect(() =>
         ext.query.$allOperations({

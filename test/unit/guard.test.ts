@@ -161,7 +161,7 @@ describe("createGuard facade", () => {
   it("extension() returns a Prisma extension object", () => {
     const guard = makeGuard();
     const ext = guard.extension(() => ({ Company: "c1" }));
-    expect(ext.name).toBe("prisma-guard-scope");
+    expect(ext.name).toBe("prisma-guard");
     expect(ext.query).toBeDefined();
     expect(ext.query.$allOperations).toBeTypeOf("function");
   });

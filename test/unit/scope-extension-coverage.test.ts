@@ -9,7 +9,7 @@ const SCOPE_MAP: ScopeMap = {
 
 function makeExtension(
   ctx: () => Partial<Record<string, string | number | bigint>>,
-  config: GuardGeneratedConfig = { onMissingScopeContext: 'error' },
+  config: GuardGeneratedConfig = { onMissingScopeContext: 'error', findUniqueMode: 'verify' },
 ) {
   const ext = createScopeExtension(SCOPE_MAP, ctx, config)
   return ext.query.$allOperations as (params: {
@@ -142,7 +142,7 @@ describe('scope-extension coverage: handleFindUnique edge cases', () => {
           return null
         },
       }),
-    ).rejects.toThrow(ShapeError)
+    ).rejects.toThrow(PolicyError)
   })
 
   it('throws ShapeError when verification query throws', async () => {
@@ -159,7 +159,7 @@ describe('scope-extension coverage: handleFindUnique edge cases', () => {
           throw new Error('db connection lost')
         },
       }),
-    ).rejects.toThrow(ShapeError)
+    ).rejects.toThrow(PolicyError)
   })
 
   it('throws PolicyError when FK not in verification result', async () => {

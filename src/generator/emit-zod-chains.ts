@@ -1,10 +1,52 @@
 import type { DMMF } from '@prisma/generator-helper'
+import { z } from 'zod'
 import { validateDirective } from './validate-directive.js'
+import { SCALAR_BASE } from '../shared/scalar-base.js'
+
+function buildGenerationBase(
+  fieldType: string,
+  isList: boolean,
+  isEnum: boolean,
+  enumValues?: readonly string[],
+): z.ZodTypeAny | null {
+  let base: z.ZodTypeAny
+
+  if (isEnum) {
+    const values = enumValues && enumValues.length > 0 ? enumValues : ['__placeholder__']
+    base = z.enum(values as [string, ...string[]])
+  } else {
+    const factory = SCALAR_BASE[fieldType]
+    if (!factory) return null
+    base = factory()
+  }
+
+  if (isList) base = z.array(base)
+
+  return base
+}
+
+function checkChainCompatibility(
+  fieldType: string,
+  isList: boolean,
+  isEnum: boolean,
+  enumValues: readonly string[] | undefined,
+  methods: string[],
+): string | null {
+  const base = buildGenerationBase(fieldType, isList, isEnum, enumValues)
+  if (!base) return null
+
+  for (const method of methods) {
+    if (typeof (base as any)[method] !== 'function') {
+      return method
+    }
+  }
+  return null
+}
 
 function findZodInDoc(documentation: string): string[] {
   return documentation.split('\n').filter(line => {
     const trimmed = line.trim()
-    return /(?:^|\s)@zod(?:\s|$|\.)/.test(trimmed)
+    return /^@zod(?:\s|$|\.)/.test(trimmed)
   })
 }
 
@@ -12,6 +54,12 @@ export function emitZodChains(
   dmmf: DMMF.Document,
   onInvalidZod: 'error' | 'warn',
 ): { source: string; hasChains: boolean } {
+  const enumNames = new Set(dmmf.datamodel.enums.map(e => e.name))
+  const enumValues: Record<string, readonly string[]> = {}
+  for (const e of dmmf.datamodel.enums) {
+    enumValues[e.name] = e.values.map(v => v.name)
+  }
+
   const modelChains: Record<string, Record<string, string>> = {}
 
   for (const model of dmmf.datamodel.models) {
@@ -46,6 +94,23 @@ export function emitZodChains(
       const result = validateDirective(chainStr)
       if (!result.valid) {
         const msg = `prisma-guard: Invalid @zod directive on ${model.name}.${field.name}: ${result.reason}`
+        if (onInvalidZod === 'error') {
+          throw new Error(msg)
+        }
+        console.warn(msg)
+        continue
+      }
+
+      const isEnum = enumNames.has(field.type)
+      const incompatible = checkChainCompatibility(
+        field.type,
+        field.isList,
+        isEnum,
+        isEnum ? enumValues[field.type] : undefined,
+        result.methods,
+      )
+      if (incompatible) {
+        const msg = `prisma-guard: @zod method "${incompatible}" on ${model.name}.${field.name} is not compatible with type "${field.type}"${field.isList ? '[]' : ''}`
         if (onInvalidZod === 'error') {
           throw new Error(msg)
         }

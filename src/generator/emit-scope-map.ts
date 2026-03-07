@@ -6,6 +6,12 @@ function isScopeRoot(documentation: string | undefined): boolean {
   return tokens.some(t => t === '@scope-root')
 }
 
+interface RelationEntry {
+  fks: string[]
+  root: string
+  relationName: string
+}
+
 export function emitScopeMap(
   dmmf: DMMF.Document,
   onAmbiguousScope: 'error' | 'warn' | 'ignore',
@@ -23,56 +29,73 @@ export function emitScopeMap(
   for (const model of dmmf.datamodel.models) {
     if (rootModels.has(model.name)) continue
 
-    const entries: { fk: string; root: string; relationName: string }[] = []
+    const relations: RelationEntry[] = []
 
     for (const field of model.fields) {
       if (!field.relationFromFields || field.relationFromFields.length === 0) continue
       if (!rootModels.has(field.type)) continue
 
-      for (const fk of field.relationFromFields) {
-        entries.push({ fk, root: field.type, relationName: field.name })
+      if (field.relationFromFields.length > 1) {
+        const msg = `Model "${model.name}" has a composite foreign key to scope root "${field.type}" via relation "${field.name}" ` +
+          `(fields: ${field.relationFromFields.join(', ')}). Composite scope relations are not supported.`
+
+        if (onAmbiguousScope === 'error') {
+          throw new Error(`prisma-guard: ${msg}`)
+        }
+
+        if (onAmbiguousScope === 'warn') {
+          console.warn(`prisma-guard: ${msg} Excluding model from scope map.`)
+        }
+
+        continue
       }
+
+      relations.push({
+        fks: [...field.relationFromFields],
+        root: field.type,
+        relationName: field.name,
+      })
+    }
+
+    if (relations.length === 0) continue
+
+    const relationsByRoot: Record<string, RelationEntry[]> = {}
+    for (const rel of relations) {
+      if (!relationsByRoot[rel.root]) relationsByRoot[rel.root] = []
+      relationsByRoot[rel.root].push(rel)
+    }
+
+    const entries: { fk: string; root: string; relationName: string }[] = []
+
+    for (const [root, rels] of Object.entries(relationsByRoot)) {
+      if (rels.length > 1) {
+        const relNames = rels.map(r => r.relationName)
+        const msg = `Model "${model.name}" has multiple relations to scope root "${root}" (${relNames.join(', ')}).`
+
+        if (onAmbiguousScope === 'error') {
+          throw new Error(
+            `prisma-guard: Ambiguous scope detected. Resolve these or set onAmbiguousScope to "warn" or "ignore":\n` +
+            `  - ${msg}`,
+          )
+        }
+
+        if (onAmbiguousScope === 'warn') {
+          console.warn(`prisma-guard: ${msg} Excluding model from scope map.`)
+        }
+
+        continue
+      }
+
+      entries.push({
+        fk: rels[0].fks[0],
+        root: rels[0].root,
+        relationName: rels[0].relationName,
+      })
     }
 
     if (entries.length > 0) {
       scopeMap[model.name] = entries
     }
-  }
-
-  const excludedModels = new Set<string>()
-  const ambiguityMessages: string[] = []
-
-  for (const [modelName, entries] of Object.entries(scopeMap)) {
-    const rootCounts: Record<string, string[]> = {}
-    for (const entry of entries) {
-      if (!rootCounts[entry.root]) rootCounts[entry.root] = []
-      rootCounts[entry.root].push(entry.fk)
-    }
-    for (const [root, fks] of Object.entries(rootCounts)) {
-      if (fks.length > 1) {
-        ambiguityMessages.push(
-          `Model "${modelName}" has multiple FKs to scope root "${root}" (${fks.join(', ')}). Excluding from scope map.`,
-        )
-        excludedModels.add(modelName)
-      }
-    }
-  }
-
-  if (ambiguityMessages.length > 0) {
-    if (onAmbiguousScope === 'error') {
-      throw new Error(
-        `prisma-guard: Ambiguous scope detected. Resolve these or set onAmbiguousScope to "warn" or "ignore":\n${ambiguityMessages.map(m => `  - ${m}`).join('\n')}`,
-      )
-    }
-    if (onAmbiguousScope === 'warn') {
-      for (const msg of ambiguityMessages) {
-        console.warn(`prisma-guard: ${msg}`)
-      }
-    }
-  }
-
-  for (const name of excludedModels) {
-    delete scopeMap[name]
   }
 
   const roots = Array.from(rootModels).sort()

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import pkg from '@prisma/generator-helper'
 const { generatorHandler } = pkg
 import type { DMMF } from '@prisma/generator-helper'

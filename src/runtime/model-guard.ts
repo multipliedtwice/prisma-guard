@@ -4,8 +4,8 @@ import type {
   GuardInput, GuardShapeOrFn, QueryMethod, GuardedModel, DataFieldRefine,
   NestedIncludeArgs, NestedSelectArgs,
 } from '../shared/types.js'
-import { ShapeError, CallerError } from '../shared/errors.js'
-import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
+import { ShapeError, CallerError, formatZodError } from '../shared/errors.js'
+import { GUARD_SHAPE_KEYS, toDelegateKey } from '../shared/constants.js'
 import { matchCallerPattern } from '../shared/match-caller.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import {
@@ -55,6 +55,12 @@ const PROJECTION_MUTATION_METHODS = new Set([
   'createManyAndReturn', 'updateManyAndReturn',
 ])
 
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  if (value == null || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return typeof v.parse === 'function' && typeof v.optional === 'function'
+}
+
 function isGuardShape(obj: unknown): obj is GuardShape {
   if (!isPlainObject(obj)) return false
   const keys = Object.keys(obj)
@@ -98,13 +104,6 @@ interface ResolvedShape {
   body: Record<string, unknown>
   matchedKey: string
   wasDynamic: boolean
-}
-
-function formatZodError(err: z.ZodError): string {
-  return err.issues.map(i => {
-    const p = i.path.length > 0 ? `${i.path.join('.')}: ` : ''
-    return `${p}${i.message}`
-  }).join('; ')
 }
 
 export function createModelGuardExtension(config: {
@@ -172,15 +171,23 @@ export function createModelGuardExtension(config: {
 
       if (typeof value === 'function') {
         let baseSchema: z.ZodTypeAny = schemaBuilder.buildBaseFieldSchema(model, fieldName)
-        let fieldSchema: z.ZodTypeAny
+        let refined: unknown
         try {
-          fieldSchema = (value as DataFieldRefine)(baseSchema)
+          refined = (value as DataFieldRefine)(baseSchema)
         } catch (err: any) {
           throw new ShapeError(
             `Invalid inline refine for "${model}.${fieldName}": ${err.message}`,
             { cause: err },
           )
         }
+
+        if (!isZodSchema(refined)) {
+          throw new ShapeError(
+            `Inline refine for "${model}.${fieldName}" must return a Zod schema`,
+          )
+        }
+
+        let fieldSchema: z.ZodTypeAny = refined
 
         if (mode === 'create') {
           if (!fieldMeta.isRequired || fieldMeta.hasDefault) {
@@ -234,6 +241,22 @@ export function createModelGuardExtension(config: {
     }
   }
 
+  function resolveDynamicShape(fn: (ctx: any) => GuardShape): GuardShape {
+    let result: unknown
+    try {
+      result = fn(contextFn())
+    } catch (err: any) {
+      throw new ShapeError(
+        `Dynamic shape function threw: ${err.message}`,
+        { cause: err },
+      )
+    }
+    if (!isPlainObject(result)) {
+      throw new ShapeError('Dynamic shape function must return a plain object')
+    }
+    return result as GuardShape
+  }
+
   function resolveShape(
     input: GuardInput,
     body: unknown,
@@ -241,7 +264,7 @@ export function createModelGuardExtension(config: {
     if (isSingleShape(input)) {
       const wasDynamic = typeof input === 'function'
       const shape = wasDynamic
-        ? (input as (ctx: any) => GuardShape)(contextFn())
+        ? resolveDynamicShape(input as (ctx: any) => GuardShape)
         : input as GuardShape
       const parsed = body === undefined || body === null
         ? {}
@@ -288,7 +311,7 @@ export function createModelGuardExtension(config: {
     const shapeOrFn = namedMap[matched]
     const wasDynamic = typeof shapeOrFn === 'function'
     const shape = wasDynamic
-      ? (shapeOrFn as (ctx: any) => GuardShape)(contextFn())
+      ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape)
       : shapeOrFn as GuardShape
 
     const { caller: _, ...rest } = parsed
@@ -731,7 +754,7 @@ export function createModelGuardExtension(config: {
     $allModels: {
       guard(this: any, input: GuardInput) {
         const modelName: string = this.$name
-        const delegateKey = modelName[0].toLowerCase() + modelName.slice(1)
+        const delegateKey = toDelegateKey(modelName)
         const modelDelegate = this.$parent[delegateKey]
         if (!modelDelegate) {
           throw new ShapeError(

@@ -24,6 +24,12 @@ function lruSet(cache: Map<string, z.ZodTypeAny>, key: string, value: z.ZodTypeA
   }
 }
 
+function isZodSchema(value: unknown): value is z.ZodTypeAny {
+  if (value == null || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return typeof v.parse === 'function' && typeof v.optional === 'function'
+}
+
 export function createSchemaBuilder(
   typeMap: TypeMap,
   zodChains: ZodChains,
@@ -109,7 +115,21 @@ export function createSchemaBuilder(
       let fieldSchema: z.ZodTypeAny
 
       if (opts.refine?.[name]) {
-        fieldSchema = opts.refine[name](buildBaseFieldSchema(model, name))
+        let refined: unknown
+        try {
+          refined = opts.refine[name](buildBaseFieldSchema(model, name))
+        } catch (err: any) {
+          throw new ShapeError(
+            `Refine function for "${model}.${name}" threw: ${err.message}`,
+            { cause: err },
+          )
+        }
+        if (!isZodSchema(refined)) {
+          throw new ShapeError(
+            `Refine function for "${model}.${name}" must return a Zod schema`,
+          )
+        }
+        fieldSchema = refined
       } else {
         fieldSchema = buildFieldSchema(model, name)
       }

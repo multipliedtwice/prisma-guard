@@ -25,6 +25,10 @@ function buildGenerationBase(
   return base
 }
 
+const TYPE_CHANGING_METHODS = new Set([
+  'optional', 'nullable', 'nullish', 'readonly', 'default', 'catch',
+])
+
 function checkChainCompatibility(
   fieldType: string,
   isList: boolean,
@@ -32,12 +36,23 @@ function checkChainCompatibility(
   enumValues: readonly string[] | undefined,
   methods: string[],
 ): string | null {
-  const base = buildGenerationBase(fieldType, isList, isEnum, enumValues)
-  if (!base) return null
+  let current = buildGenerationBase(fieldType, isList, isEnum, enumValues)
+  if (!current) return null
 
   for (const method of methods) {
-    if (typeof (base as any)[method] !== 'function') {
+    if (typeof (current as any)[method] !== 'function') {
       return method
+    }
+    if (TYPE_CHANGING_METHODS.has(method)) {
+      try {
+        if (method === 'default' || method === 'catch') {
+          current = (current as any)[method](undefined)
+        } else {
+          current = (current as any)[method]()
+        }
+      } catch {
+        // method exists but advancement failed; continue with current base
+      }
     }
   }
   return null

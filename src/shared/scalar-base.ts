@@ -6,10 +6,11 @@ import { z } from 'zod'
  * deeply nested client-provided Json field values.
  *
  * Rejects: undefined, functions, symbols, class instances (including Date),
- * NaN, Infinity.
+ * NaN, Infinity, circular references.
  */
 function isJsonSafe(value: unknown): boolean {
   const stack: unknown[] = [value]
+  const seen = new Set<object>()
 
   while (stack.length > 0) {
     const current = stack.pop()
@@ -25,6 +26,8 @@ function isJsonSafe(value: unknown): boolean {
         if (!Number.isFinite(current)) return false
         continue
       case 'object': {
+        if (seen.has(current)) return false
+        seen.add(current)
         if (Array.isArray(current)) {
           for (let i = 0; i < current.length; i++) {
             stack.push(current[i])
@@ -74,7 +77,7 @@ export const SCALAR_BASE: Record<string, () => z.ZodTypeAny> = {
     z.string().datetime({ offset: true }),
     z.string().datetime(),
   ]).pipe(z.coerce.date()),
-  Json: () => z.unknown().refine(isJsonSafe, 'Value must be JSON-serializable (no undefined, functions, symbols, class instances, NaN, or Infinity)'),
+  Json: () => z.unknown().refine(isJsonSafe, 'Value must be JSON-serializable (no undefined, functions, symbols, class instances, NaN, Infinity, or circular references)'),
   Bytes: () => z.union([
     z.string(),
     z.custom<unknown>(v => v instanceof Uint8Array),

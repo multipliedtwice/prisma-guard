@@ -1191,6 +1191,9 @@ export function createQueryBuilder(
         throw new ShapeError(`Arg "${key}" not allowed for method "${method}"`);
       }
     }
+    if (UNIQUE_WHERE_METHODS.has(method) && !shape.where) {
+      throw new ShapeError(`${method} shape must define "where"`);
+    }
     if (shape.include && shape.select) {
       throw new ShapeError(
         'Shape config cannot define both "include" and "select".',

@@ -1,3 +1,5 @@
+import type { ZodError } from 'zod'
+
 export class PolicyError extends Error {
   readonly status = 403
   readonly code = 'POLICY_DENIED'
@@ -23,4 +25,11 @@ export class CallerError extends Error {
     super(message, options)
     this.name = 'CallerError'
   }
+}
+
+export function formatZodError(err: ZodError): string {
+  return err.issues.map(i => {
+    const p = i.path.length > 0 ? `${i.path.join('.')}: ` : ''
+    return `${p}${i.message}`
+  }).join('; ')
 }

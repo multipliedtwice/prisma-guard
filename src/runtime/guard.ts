@@ -3,18 +3,11 @@ import type {
   TypeMap, GuardConfig, InputOpts, ModelOpts,
   QueryMethod, ShapeOrFn, QuerySchema, GuardLogger,
 } from '../shared/types.js'
-import { ShapeError } from '../shared/errors.js'
+import { ShapeError, formatZodError } from '../shared/errors.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import { createQueryBuilder } from './query-builder.js'
 import { createScopeExtension } from './scope-extension.js'
 import { createModelGuardExtension } from './model-guard.js'
-
-function formatZodError(err: ZodError): string {
-  return err.issues.map(i => {
-    const p = i.path.length > 0 ? `${i.path.join('.')}: ` : ''
-    return `${p}${i.message}`
-  }).join('; ')
-}
 
 export function createGuard<
   TModels extends TypeMap = TypeMap,
@@ -87,16 +80,24 @@ export function createGuard<
     extension: <TCtx extends Record<string, unknown> = Record<string, unknown>>(
       contextFn: () => TCtx,
     ) => {
+      const scopeRoots = new Set<string>()
+      for (const entries of Object.values(config.scopeMap)) {
+        for (const entry of entries) {
+          scopeRoots.add(entry.root)
+        }
+      }
+
       const scopeCtxFn = () => {
         const ctx = contextFn()
         const scopeCtx: Partial<Record<TRoots, string | number | bigint>> = {}
         for (const key of Object.keys(ctx)) {
+          if (!scopeRoots.has(key)) continue
           const val = ctx[key]
           if (typeof val === 'string' || typeof val === 'number' || typeof val === 'bigint') {
             scopeCtx[key as TRoots] = val
           } else if (val !== null && val !== undefined) {
             log.warn(
-              `prisma-guard: Context key "${key}" has non-primitive value (${typeof val}). Only string, number, and bigint values are used for scope context.`,
+              `prisma-guard: Scope root "${key}" has non-primitive value (${typeof val}). Only string, number, and bigint values are used for scope context.`,
             )
           }
         }

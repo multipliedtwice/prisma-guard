@@ -6,3 +6,7 @@ export const SHAPE_CONFIG_KEYS = new Set([
 export const GUARD_SHAPE_KEYS = new Set([
   'data', ...SHAPE_CONFIG_KEYS,
 ])
+
+export function toDelegateKey(modelName: string): string {
+  return modelName[0].toLowerCase() + modelName.slice(1)
+}

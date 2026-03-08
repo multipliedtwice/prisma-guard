@@ -1,8 +1,5 @@
 import type { DMMF } from '@prisma/generator-helper'
-
-function toDelegateKey(modelName: string): string {
-  return modelName[0].toLowerCase() + modelName.slice(1)
-}
+import { toDelegateKey } from '../shared/constants.js'
 
 export function emitClient(dmmf: DMMF.Document): string {
   const modelEntries = dmmf.datamodel.models

@@ -42,6 +42,7 @@ database
 * [Named shapes and caller routing](#named-shapes-and-caller-routing)
 * [Context-dependent shapes](#context-dependent-shapes)
 * [Automatic tenant isolation](#automatic-tenant-isolation)
+* [Multi-root scope behavior](#multi-root-scope-behavior)
 * [findUnique behavior](#findunique-behavior)
 * [Output shaping](#output-shaping)
 * [Security model](#security-model)
@@ -300,7 +301,7 @@ model Tenant {
 }
 ```
 
-Models with a single unambiguous foreign key to a scope root are auto-scoped.
+Models with a single unambiguous foreign key to a scope root are auto-scoped. A model can be scoped by multiple roots if it has foreign keys to different scope root models — see [Multi-root scope behavior](#multi-root-scope-behavior).
 
 If a model has multiple foreign keys to the same scope root, it is excluded from the auto-scope map when `onAmbiguousScope` is `"warn"` or `"ignore"`, and causes a generation error when `onAmbiguousScope` is `"error"` (the default).
 
@@ -317,7 +318,7 @@ model User {
 
 `@zod` chains apply automatically when the field appears in a `data` shape with `true`.
 
-`@zod` directives are validated during `prisma generate`. The generator validates directive syntax, checks that each chained method exists on the field's Zod base type, and attempts to construct the full chain. Invalid chains — such as `.email()` on a Boolean field or `.min("abc")` on a String field — fail generation with a clear error message. Note: some argument-level type mismatches may only be caught if Zod throws at schema construction time.
+`@zod` directives are validated during `prisma generate`. The generator validates directive syntax, checks that each chained method is in the allowed list, and verifies method compatibility by advancing through the chain. Type-changing methods (such as `.nullable()`, `.optional()`, `.default()`) advance the schema type, so a chain like `.nullable().email()` is correctly rejected if `.email()` does not exist on the nullable wrapper. Note: some argument-level type mismatches may only be caught if Zod throws at schema construction time.
 
 For list fields, `@zod` chains apply to the `z.array(...)` schema, not to individual elements. For example, `.min(1)` on a `String[]` field enforces a minimum array length of 1, not a minimum string length.
 
@@ -337,6 +338,8 @@ Note on field modifiers: prisma-guard already handles `optional` and `nullable` 
 
 Note on `default`: a `@zod .default(...)` chain does not set `hasDefault` in the type map — that comes from Prisma's `@default` attribute. A `@zod .default(...)` adds a Zod-level default, which means Zod will fill in the value if it's undefined, but prisma-guard's create completeness check still treats the field based on the Prisma schema metadata.
 
+Note on chain ordering: type-changing methods like `.nullable()`, `.optional()`, `.default()`, and `.catch()` alter the wrapper type. Methods that follow a type-changing method must exist on the resulting wrapper, not on the original base type. For example, `.email().nullable()` is valid (`.email()` returns a string schema, `.nullable()` wraps it), but `.nullable().email()` is invalid (`.nullable()` returns a nullable wrapper that does not have `.email()`).
+
 ### Supported argument types in `@zod` directives
 
 The directive parser accepts these argument types: strings (`'hello'`, `"hello"`), numbers (`42`, `-3.14`, `1e2`), booleans (`true`, `false`), arrays (`[1, 2, 3]`), regex literals (`/^[a-z]+$/i`), and object literals (`{offset: true}`). Identifiers, template literals, `null`, `NaN`, `Infinity`, and function calls are not allowed.
@@ -353,6 +356,8 @@ guard.input('User', {
 ```
 
 In this example, any `@zod` directive on the `email` field in the Prisma schema is ignored. The `refine` callback is the sole source of validation for that field.
+
+Refine callbacks and inline refine functions must return a valid Zod schema. If the callback throws or returns a non-Zod value, a `ShapeError` is raised.
 
 ---
 
@@ -787,7 +792,9 @@ const prisma = new PrismaClient().$extends(
 )
 ```
 
-The context function returns an object with arbitrary keys. Keys whose values are `string`, `number`, or `bigint` are used as scope context for tenant isolation. Other keys (like `role` in the example above) are passed through to shape functions but are not used for scoping.
+The context function returns an object with arbitrary keys. Keys whose values are `string`, `number`, or `bigint` and that match a scope root model name are used as scope context for tenant isolation. Other keys (like `role` in the example above) are passed through to shape functions but are not used for scoping.
+
+Dynamic shape functions must return a plain guard shape object. If the function throws or returns a non-object value, a `ShapeError` is raised.
 
 ### Single context-dependent shape
 ```ts
@@ -870,7 +877,7 @@ This applies to all top-level operations on scoped models, including reads, writ
 
 ### What is NOT scoped
 
-* Nested reads loaded via `include` or `select` — use forced where conditions in the shape to restrict these
+* Nested reads loaded via `include` or `select` — use forced where conditions in the shape to restrict these (to-many relations only; see [Limitations](#limitations))
 * Nested writes — Prisma extension hooks operate on top-level operations only
 * `$queryRaw` and `$executeRaw` — raw SQL bypasses all guard protections
 * `upsert` on scoped models — rejected with `PolicyError`; handle explicitly in route logic
@@ -893,6 +900,20 @@ generator guard {
   onScopeRelationWrite  = "error"
 }
 ```
+
+---
+
+## Multi-root scope behavior
+
+A model can be scoped by multiple scope roots simultaneously. If `Project` has a foreign key to both `Tenant` and `Organization` (both marked `@scope-root`), the scope extension enforces both.
+
+On reads, both scope conditions are combined with `AND`. If `onMissingScopeContext` is `"warn"` or `"ignore"`, only present roots are enforced — missing roots are skipped. If `"error"` (the default), all roots must be present.
+
+On writes, all scope roots must be present in the context. A missing root always throws `PolicyError`, regardless of `onMissingScopeContext`.
+
+Scope foreign keys for all present roots are injected into create data and stripped from update/delete data.
+
+If this behavior is not what you want, restructure your schema so the model references only one scope root, or handle scoping explicitly via shape rules.
 
 ---
 
@@ -941,6 +962,8 @@ This is weaker because:
 * it has a TOCTOU race window
 
 For tenant isolation, `"reject"` is the safer production default.
+
+Guard shapes for `findUnique` and `findUniqueOrThrow` must define `where`. A shape without `where` for these methods throws `ShapeError`.
 
 ---
 
@@ -1002,11 +1025,21 @@ Use query shape rules to restrict nested write paths you do not want to expose.
 
 The scope extension operates on the top-level operation only. If a query uses `include` or `select` to load a relation that is itself a scoped model, the nested results are not tenant-filtered by the extension. Use forced where conditions in the include/select shape to restrict nested reads. This applies to both read operations and mutation return projections.
 
+### Forced where on nested reads is limited to to-many relations
+
+Prisma does not support `where` on to-one relation includes. Because of this, forced `where` conditions in nested include/select shapes only work on to-many relations.
+
+For to-one relations (e.g. `author` on a `Post`), the available mitigations are: omit the relation from the include/select shape entirely, restrict which scalar fields are returned using nested `select`, or rely on database-level constraints (e.g. RLS, foreign key guarantees).
+
+This is a Prisma API constraint, not a prisma-guard limitation.
+
 ### `findUnique` cannot be safely scoped in Prisma extension mode
 
 This is a Prisma API limitation, not a conceptual limitation of scoped unique lookups.
 
 That is why `findUniqueMode = "reject"` is recommended.
+
+Guard shapes for `findUnique` and `findUniqueOrThrow` must define `where`. A shape without `where` throws `ShapeError`.
 
 ### Composite foreign keys to scope roots
 
@@ -1046,7 +1079,7 @@ Guard `having` shapes support scalar field filters with their type-appropriate o
 
 ### Json fields accept any JSON-serializable value
 
-`Json` fields are recursively validated as JSON-serializable values (string, number, boolean, null, plain objects, arrays). Values that are not JSON-serializable — including `undefined`, functions, symbols, class instances (such as `Date`), `NaN`, and `Infinity` — are rejected. This does not enforce any particular JSON structure. If you need structured JSON validation, use a context-dependent shape or validate before calling guard.
+`Json` fields are recursively validated as JSON-serializable values (string, number, boolean, null, plain objects, arrays). Values that are not JSON-serializable — including `undefined`, functions, symbols, class instances (such as `Date`), `NaN`, `Infinity`, and circular references — are rejected. This does not enforce any particular JSON structure. If you need structured JSON validation, use a context-dependent shape or validate before calling guard.
 
 ### `refine` and inline refine functions replace `@zod` chains
 
@@ -1067,6 +1100,14 @@ A `@zod .default(...)` directive adds a Zod-level default but does not set `hasD
 ### Inline refine functions are not cached
 
 Data schemas containing inline refine functions are rebuilt on every request, since the function reference could be context-dependent (e.g. when used inside a dynamic shape that closes over context values). Static data shapes using only `true` and literal values are cached normally.
+
+### `take` does not support negative values
+
+Prisma supports negative `take` for reverse cursor pagination. prisma-guard restricts `take` to positive integers (minimum 1). If you need reverse pagination, construct the query server-side using a context-dependent shape.
+
+### `skip` in shape config is a permission flag
+
+`skip: true` in a shape config means the client is allowed to provide a `skip` value. The actual `skip` value must be a non-negative integer. This is consistent with other shape flags but differs from `take`, which uses `{ max, default? }` syntax.
 
 ---
 
@@ -1094,7 +1135,7 @@ Libraries like **prisma-sql** make this possible for advanced architectures.
 `.guard(shape).method(body)` may throw:
 
 * `ZodError` — Zod validation failures on data or query args (unless `wrapZodErrors` is enabled)
-* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, incomplete create data shapes, or invalid inline refine functions
+* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, incomplete create data shapes, invalid inline refine functions, or dynamic shape functions returning invalid values
 * `CallerError` — missing, unknown, or ambiguous caller in named shapes
 * `PolicyError` — denied scope, missing tenant context, or rejected operations on scoped models (e.g. upsert, findUnique in reject mode)
 
@@ -1137,7 +1178,7 @@ It reads the Prisma DMMF and emits:
 * `TYPE_MAP` — field metadata per model
 * `ENUM_MAP` — enum values
 * `SCOPE_MAP` — foreign key → scope root mappings
-* `ZOD_CHAINS` — `@zod` directive chains (validated against real Zod base types at generation time)
+* `ZOD_CHAINS` — `@zod` directive chains (validated by executing the full chain against the field's Zod base type at generation time)
 * `GUARD_CONFIG` — generator config values
 * `UNIQUE_MAP` — unique constraint metadata per model
 * `client.ts` — pre-wired guard instance with typed model extensions
@@ -1208,6 +1249,9 @@ Data schemas containing inline refine functions are also not cached, since the f
 | invalid inline refine function         | error always (ShapeError)                             |
 | projection on batch method             | error always                                          |
 | body projection without shape          | error always                                          |
+| dynamic shape returns non-object       | error always (ShapeError)                             |
+| refine callback returns non-Zod schema | error always (ShapeError)                             |
+| `findUnique` shape without `where`     | error always (ShapeError)                             |
 
 ---
 

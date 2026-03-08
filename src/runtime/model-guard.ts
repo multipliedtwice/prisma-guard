@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type {
   TypeMap, EnumMap, ZodChains, UniqueMap, ScopeMap, GuardShape,
-  GuardInput, GuardShapeOrFn, QueryMethod, GuardedModel,
+  GuardInput, GuardShapeOrFn, QueryMethod, GuardedModel, DataFieldRefine,
 } from '../shared/types.js'
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
@@ -149,7 +149,32 @@ export function createModelGuardExtension(config: {
       if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in data shape`)
       if (fieldMeta.isUpdatedAt) throw new ShapeError(`updatedAt field "${fieldName}" cannot be used in data shape`)
 
-      if (value === true) {
+      if (typeof value === 'function') {
+        let baseSchema: z.ZodTypeAny = schemaBuilder.buildBaseFieldSchema(model, fieldName)
+        let fieldSchema: z.ZodTypeAny
+        try {
+          fieldSchema = (value as DataFieldRefine)(baseSchema)
+        } catch (err: any) {
+          throw new ShapeError(
+            `Invalid inline refine for "${model}.${fieldName}": ${err.message}`,
+            { cause: err },
+          )
+        }
+
+        if (mode === 'create') {
+          if (!fieldMeta.isRequired || fieldMeta.hasDefault) {
+            fieldSchema = fieldSchema.optional()
+          }
+        } else {
+          if (!fieldMeta.isRequired) {
+            fieldSchema = fieldSchema.nullable().optional()
+          } else {
+            fieldSchema = fieldSchema.optional()
+          }
+        }
+
+        schemaMap[fieldName] = fieldSchema
+      } else if (value === true) {
         let fieldSchema: z.ZodTypeAny = schemaBuilder.buildFieldSchema(model, fieldName)
 
         if (mode === 'create') {
@@ -276,6 +301,13 @@ export function createModelGuardExtension(config: {
     validateUniqueEquality(modelName, shape.where, method, uniqueMap)
   }
 
+  function hasDataRefines(dataConfig: Record<string, true | unknown>): boolean {
+    for (const value of Object.values(dataConfig)) {
+      if (typeof value === 'function') return true
+    }
+    return false
+  }
+
   function createGuardedMethods(
     modelName: string,
     modelDelegate: Record<string, (args: any) => any>,
@@ -315,7 +347,7 @@ export function createModelGuardExtension(config: {
       matchedKey: string,
       wasDynamic: boolean,
     ): BuiltDataSchema {
-      if (!wasDynamic) {
+      if (!wasDynamic && !hasDataRefines(dataConfig)) {
         const cacheKey = `${mode}\0${matchedKey}`
         const cached = dataSchemaCache.get(cacheKey)
         if (cached) return cached

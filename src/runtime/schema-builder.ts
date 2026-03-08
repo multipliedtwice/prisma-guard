@@ -253,5 +253,5 @@ export function createSchemaBuilder(
     return schema
   }
 
-  return { buildFieldSchema, buildInputSchema, buildModelSchema }
+  return { buildFieldSchema, buildBaseFieldSchema, buildInputSchema, buildModelSchema }
 }

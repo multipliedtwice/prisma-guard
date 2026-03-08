@@ -16,6 +16,8 @@ export interface GuardLogger {
   warn(message: string): void
 }
 
+export type DataFieldRefine = (base: z.ZodTypeAny) => z.ZodTypeAny
+
 export type InputOpts = {
   mode?: 'create' | 'update'
   partial?: boolean
@@ -144,7 +146,7 @@ export interface InputSchema {
 }
 
 export interface GuardShape extends ShapeConfig {
-  data?: Record<string, true | unknown>
+  data?: Record<string, true | DataFieldRefine | unknown>
 }
 
 export type GuardShapeOrFn =

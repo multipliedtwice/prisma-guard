@@ -314,7 +314,7 @@ model User {
 }
 ```
 
-`@zod` chains apply automatically when the field appears in a `data` shape.
+`@zod` chains apply automatically when the field appears in a `data` shape with `true`.
 
 `@zod` directives are validated during `prisma generate`. The generator validates directive syntax, checks that each chained method exists on the field's Zod base type, and attempts to construct the full chain. Invalid chains — such as `.email()` on a Boolean field or `.min("abc")` on a String field — fail generation with a clear error message. Note: some argument-level type mismatches may only be caught if Zod throws at schema construction time.
 
@@ -342,7 +342,7 @@ The directive parser accepts these argument types: strings (`'hello'`, `"hello"`
 
 ### `refine` replaces `@zod` chains
 
-When using `guard.input()` with a `refine` callback for a field, the callback receives the **base** Zod type (without `@zod` chains applied). The `@zod` chain for that field is bypassed entirely. This is by design — `refine` is a full override, not a modifier on top of `@zod`.
+Both `guard.input({ refine })` and inline refine functions in `data` shapes bypass `@zod` chains. The function receives the **base** Zod type (without `@zod` chains applied). This is by design — refine is a full override, not a modifier on top of `@zod`.
 ```ts
 guard.input('User', {
   refine: {
@@ -359,10 +359,66 @@ In this example, any `@zod` directive on the `email` field in the Prisma schema 
 
 `.guard(shape)` is available on every model delegate. It returns an object with all Prisma methods. The shape defines the boundary; the method validates and executes.
 
-### Shape syntax
+### Data shape syntax
 
-* `true` — the client may provide this value
-* literal value — the server forces this value
+Each field in a `data` shape accepts one of three value types:
+
+* `true` — the client may provide this value; `@zod` chains apply automatically
+* literal value — the server forces this value; the client cannot override it
+* function `(base) => schema` — the client may provide this value; the function receives the base Zod type (without `@zod` chains) and returns a refined schema
+
+```ts
+await prisma.project
+  .guard({
+    data: {
+      title: (base) => base.min(1, 'Title required').max(200),
+      status: true,
+      priority: (base) => base.refine(v => v >= 1 && v <= 5, 'Priority 1-5'),
+      createdBy: currentUserId,
+    },
+  })
+  .create({ data: req.body })
+```
+
+In this example, `title` and `priority` use inline refines for custom validation and error messages, `status` uses `@zod` chains from the Prisma schema, and `createdBy` is forced to `currentUserId` regardless of client input.
+
+Inline refines work everywhere data shapes are used — single shapes, named shapes, and context-dependent shapes:
+```ts
+await prisma.project
+  .guard({
+    '/admin/projects': {
+      data: {
+        title: (base) => base.min(1).max(500),
+        status: true,
+        priority: (base) => base.refine(v => v >= 1 && v <= 10, 'Priority 1-10'),
+      },
+    },
+    '/editor/projects': {
+      data: {
+        title: (base) => base.min(1).max(200),
+      },
+    },
+  })
+  .create({
+    caller: req.headers['x-caller'],
+    data: req.body,
+  })
+```
+
+```ts
+await prisma.project
+  .guard((ctx) => ({
+    data: {
+      title: (base) => base.min(1).max(ctx.role === 'admin' ? 500 : 200),
+      status: ctx.role === 'admin' ? true : 'draft',
+    },
+  }))
+  .create({ data: req.body })
+```
+
+### Query shape syntax
+
+For read operations, `true` means the client may provide this value and literal values are forced:
 
 ### Reads
 ```ts
@@ -388,7 +444,7 @@ await prisma.project
 
 Only `title` and `status` are accepted from the client. `@zod` chains apply automatically.
 
-For create operations, guard validates that all required fields without defaults are accounted for in the data shape — either as client-allowed (`true`), forced (literal value), or as scope foreign keys that the scope extension will inject automatically. If a required non-default field is missing from the shape and is not a scope FK, guard throws `ShapeError` at shape evaluation time.
+For create operations, guard validates that all required fields without defaults are accounted for in the data shape — either as client-allowed (`true` or function), forced (literal value), or as scope foreign keys that the scope extension will inject automatically. If a required non-default field is missing from the shape and is not a scope FK, guard throws `ShapeError` at shape evaluation time.
 
 ### Updates
 ```ts
@@ -567,6 +623,30 @@ await prisma.project
   })
 ```
 
+### Named shapes with inline refines
+```ts
+await prisma.project
+  .guard({
+    '/admin/projects': {
+      data: {
+        title: (base) => base.min(1).max(500),
+        status: true,
+      },
+    },
+    '/public/projects': {
+      data: {
+        title: (base) => base.min(1).max(100),
+      },
+    },
+  })
+  .create({
+    caller: req.headers['x-caller'],
+    data: req.body,
+  })
+```
+
+All data shape value types (`true`, literal, function) work in named shapes, context-dependent shapes, and single shapes.
+
 ### Parameterized caller patterns
 ```text
 /org/:orgId/users
@@ -607,6 +687,20 @@ await prisma.project
   }))
   .findMany(req.body)
 ```
+
+### Context-dependent data shapes with inline refines
+```ts
+await prisma.project
+  .guard((ctx) => ({
+    data: {
+      title: (base) => base.min(1).max(ctx.role === 'admin' ? 500 : 200),
+      status: ctx.role === 'admin' ? true : 'draft',
+    },
+  }))
+  .create({ data: req.body })
+```
+
+Context-dependent shapes can use the context both for structural decisions (which fields to expose, forced vs client-provided) and within inline refine functions (dynamic validation limits).
 
 ### Named context-dependent shapes
 ```ts
@@ -840,9 +934,9 @@ Guard `having` shapes support scalar field filters with their type-appropriate o
 
 `Json` fields are recursively validated as JSON-serializable values (string, number, boolean, null, plain objects, arrays). Values that are not JSON-serializable — including `undefined`, functions, symbols, class instances (such as `Date`), `NaN`, and `Infinity` — are rejected. This does not enforce any particular JSON structure. If you need structured JSON validation, use a context-dependent shape or validate before calling guard.
 
-### `refine` replaces `@zod` chains
+### `refine` and inline refine functions replace `@zod` chains
 
-When a `refine` callback is provided for a field in `guard.input()`, the callback receives the base Zod type without `@zod` chains. The `@zod` directive for that field is bypassed entirely. See [Schema annotations](#refine-replaces-zod-chains).
+When a `refine` callback is provided for a field in `guard.input()`, or when a function is used instead of `true` in a `data` shape, the callback receives the base Zod type without `@zod` chains. The `@zod` directive for that field is bypassed entirely. See [Schema annotations](#refine-replaces-zod-chains).
 
 ### `pick` and `omit` are mutually exclusive
 
@@ -855,6 +949,10 @@ Using `@zod .optional()`, `.nullable()`, or `.nullish()` applies the Zod method 
 ### `@zod .default()` does not affect create completeness checks
 
 A `@zod .default(...)` directive adds a Zod-level default but does not set `hasDefault` in the type map. Create completeness validation still uses Prisma schema metadata (`@default`). A field with only `@zod .default(...)` and no Prisma `@default` will still be flagged as missing from create data shapes.
+
+### Inline refine functions are not cached
+
+Data schemas containing inline refine functions are rebuilt on every request, since the function reference could be context-dependent (e.g. when used inside a dynamic shape that closes over context values). Static data shapes using only `true` and literal values are cached normally.
 
 ---
 
@@ -882,7 +980,7 @@ Libraries like **prisma-sql** make this possible for advanced architectures.
 `.guard(shape).method(body)` may throw:
 
 * `ZodError` — Zod validation failures on data or query args (unless `wrapZodErrors` is enabled)
-* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, or incomplete create data shapes
+* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, incomplete create data shapes, or invalid inline refine functions
 * `CallerError` — missing, unknown, or ambiguous caller in named shapes
 * `PolicyError` — denied scope, missing tenant context, or rejected operations on scoped models (e.g. upsert, findUnique in reject mode)
 
@@ -964,6 +1062,8 @@ In most real applications, overhead should be negligible relative to database ro
 
 Static shapes (both single and named) are cached per guard instance and method. In a named shape map, each static entry is cached independently — a map with 9 static entries and 1 context-dependent entry will cache the 9 static entries. Context-dependent shapes (functions) resolve the function on each call because they depend on runtime context and are never cached.
 
+Data schemas containing inline refine functions are also not cached, since the function could close over runtime context values. Data shapes using only `true` and literal values are cached normally.
+
 ---
 
 ## Security philosophy
@@ -991,6 +1091,7 @@ Static shapes (both single and named) are cached per guard instance and method. 
 | `pick` and `omit` both specified       | error always                                          |
 | scope relation in mutation data        | controlled by `onScopeRelationWrite` (default: error) |
 | incomplete create data shape           | error always                                          |
+| invalid inline refine function         | error always (ShapeError)                             |
 
 ---
 
@@ -1068,6 +1169,7 @@ Node 22
 | Mutation body validation                   | strict keys    | no          |
 | Shape config validation                    | strict keys    | n/a         |
 | Create completeness validation             | yes            | no          |
+| Inline field refine in data shapes         | yes            | n/a         |
 | ZodError wrapping                          | opt-in         | n/a         |
 
 ---

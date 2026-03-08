@@ -126,6 +126,86 @@ describe('validateDirective', () => {
       const r = validateDirective('.min(1).max(100).trim()')
       expect(r).toEqual({ valid: true, methods: ['min', 'max', 'trim'] })
     })
+
+    it('accepts nullable', () => {
+      const r = validateDirective('.nullable()')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['nullable'] })
+    })
+
+    it('accepts optional', () => {
+      const r = validateDirective('.optional()')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['optional'] })
+    })
+
+    it('accepts nullish', () => {
+      const r = validateDirective('.nullish()')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['nullish'] })
+    })
+
+    it('accepts readonly', () => {
+      const r = validateDirective('.readonly()')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['readonly'] })
+    })
+
+    it('accepts default with string arg', () => {
+      const r = validateDirective(".default('active')")
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['default'] })
+    })
+
+    it('accepts default with number arg', () => {
+      const r = validateDirective('.default(0)')
+      expect(r.valid).toBe(true)
+    })
+
+    it('accepts catch with value', () => {
+      const r = validateDirective(".catch('fallback')")
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['catch'] })
+    })
+
+    it('accepts regex with simple pattern', () => {
+      const r = validateDirective('.regex(/^[a-z]+$/)')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['regex'] })
+    })
+
+    it('accepts regex with flags', () => {
+      const r = validateDirective('.regex(/^[A-Z]+$/i)')
+      expect(r.valid).toBe(true)
+    })
+
+    it('accepts regex with error message', () => {
+      const r = validateDirective('.regex(/^\\d+$/, "digits only")')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['regex'] })
+    })
+
+    it('accepts object literal arg', () => {
+      const r = validateDirective('.datetime({offset: true})')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['datetime'] })
+    })
+
+    it('accepts object with string keys', () => {
+      const r = validateDirective('.ip({"version": "v4"})')
+      expect(r.valid).toBe(true)
+    })
+
+    it('accepts empty object arg', () => {
+      const r = validateDirective('.datetime({})')
+      expect(r.valid).toBe(true)
+    })
+
+    it('accepts chained with new methods', () => {
+      const r = validateDirective('.min(1).max(100).nullable().default(0)')
+      expect(r.valid).toBe(true)
+      expect(r).toEqual({ valid: true, methods: ['min', 'max', 'nullable', 'default'] })
+    })
   })
 
   describe('invalid directives', () => {
@@ -146,25 +226,16 @@ describe('validateDirective', () => {
       expect(r.valid === false && r.reason).toContain('Unknown zod method')
     })
 
-    it('rejects nullable', () => {
-      const r = validateDirective('.nullable()')
-      expect(r.valid).toBe(false)
-    })
-
-    it('rejects optional', () => {
-      const r = validateDirective('.optional()')
-      expect(r.valid).toBe(false)
-    })
-
-    it('rejects default', () => {
+    it('rejects default without args', () => {
       const r = validateDirective('.default()')
       expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('expects 1 argument')
     })
 
-    it('rejects object literal arg', () => {
-      const r = validateDirective('.min({value: 1})')
+    it('rejects catch without args', () => {
+      const r = validateDirective('.catch()')
       expect(r.valid).toBe(false)
-      expect(r.valid === false && r.reason).toContain('Object literal')
+      expect(r.valid === false && r.reason).toContain('expects 1 argument')
     })
 
     it('rejects template literal arg', () => {
@@ -281,6 +352,24 @@ describe('validateDirective', () => {
       const r = validateDirective('.min(null)')
       expect(r.valid).toBe(false)
       expect(r.valid === false && r.reason).toContain('null')
+    })
+
+    it('rejects unterminated regex', () => {
+      const r = validateDirective('.regex(/abc)')
+      expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('Unterminated regex')
+    })
+
+    it('rejects unclosed object', () => {
+      const r = validateDirective('.datetime({offset: true)')
+      expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('"}"')
+    })
+
+    it('rejects object with missing colon', () => {
+      const r = validateDirective('.datetime({offset true})')
+      expect(r.valid).toBe(false)
+      expect(r.valid === false && r.reason).toContain('":"')
     })
   })
 })

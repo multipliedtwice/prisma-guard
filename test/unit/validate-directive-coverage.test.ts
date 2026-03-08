@@ -39,12 +39,13 @@ describe('validate-directive coverage: uncovered error branches', () => {
     expectInvalid('.min(someVar)', /[Ii]dentifier/)
   })
 
-  it('rejects object literal in args', () => {
-    expectInvalid('.min({})', /[Oo]bject literal/)
+  it('accepts object literal in args', () => {
+    const result = validateDirective('.datetime({offset: true})')
+    expect(result.valid).toBe(true)
   })
 
   it('rejects closing brace in args', () => {
-    expectInvalid('.min(})', /[Oo]bject literal/)
+    expectInvalid('.min(})', /[Uu]nexpected "\}"/)
   })
 
   it('rejects template literal in args', () => {
@@ -96,6 +97,61 @@ describe('validate-directive coverage: uncovered error branches', () => {
 
   it('valid: escaped quote in string', () => {
     const result = validateDirective(".startsWith('\\'')")
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts empty object literal', () => {
+    const result = validateDirective('.datetime({})')
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects object with missing colon', () => {
+    expectInvalid('.datetime({offset true})', /":"/)
+  })
+
+  it('rejects object with unclosed brace', () => {
+    expectInvalid('.datetime({offset: true)', /"\}"/)
+  })
+
+  it('accepts regex literal in args', () => {
+    const result = validateDirective('.regex(/^[a-z]+$/i)')
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects unterminated regex', () => {
+    expectInvalid('.regex(/abc)', /[Uu]nterminated regex/)
+  })
+
+  it('rejects empty regex pattern', () => {
+    expectInvalid('.regex(//)', /[Ee]mpty.*regex|comment-like/)
+  })
+
+  it('accepts nullable as valid', () => {
+    const result = validateDirective('.nullable()')
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts optional as valid', () => {
+    const result = validateDirective('.optional()')
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts default with value', () => {
+    const result = validateDirective(".default('active')")
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects default without value', () => {
+    expectInvalid('.default()', /expects 1 argument/)
+  })
+
+  it('accepts catch with value', () => {
+    const result = validateDirective(".catch('fallback')")
+    expect(result.valid).toBe(true)
+  })
+
+  it('accepts readonly', () => {
+    const result = validateDirective('.readonly()')
     expect(result.valid).toBe(true)
   })
 })

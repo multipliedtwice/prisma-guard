@@ -8,6 +8,10 @@ const ALLOWED_ZOD_METHODS = new Set([
   'finite', 'safe', 'multipleOf', 'step',
   'gt', 'gte', 'lt', 'lte',
   'nonempty',
+  'regex',
+  'readonly',
+  'optional', 'nullable', 'nullish',
+  'default', 'catch',
 ])
 
 const METHOD_ARITY: Record<string, [number, number]> = {
@@ -22,6 +26,10 @@ const METHOD_ARITY: Record<string, [number, number]> = {
   multipleOf: [1, 2], step: [1, 2],
   gt: [1, 2], gte: [1, 2], lt: [1, 2], lte: [1, 2],
   nonempty: [0, 1],
+  regex: [1, 2],
+  readonly: [0, 0],
+  optional: [0, 0], nullable: [0, 0], nullish: [0, 0],
+  default: [1, 1], catch: [1, 1],
 }
 
 const MAX_DIRECTIVE_LENGTH = 1024
@@ -120,12 +128,67 @@ export function validateDirective(raw: string): ValidationResult {
     return null
   }
 
+  function parseRegex(): ValidationResult | null {
+    advance()
+    if (peek() === '/' || peek() === '*') {
+      return { valid: false, reason: 'Empty or comment-like regex pattern' }
+    }
+    let inCharClass = false
+    while (pos < input.length) {
+      const ch = input[pos]
+      if (ch === '\\') {
+        if (pos + 1 >= input.length) {
+          return { valid: false, reason: 'Unterminated escape in regex' }
+        }
+        pos += 2
+        continue
+      }
+      if (ch === '[' && !inCharClass) {
+        inCharClass = true
+        pos++
+        continue
+      }
+      if (ch === ']' && inCharClass) {
+        inCharClass = false
+        pos++
+        continue
+      }
+      if (ch === '/' && !inCharClass) {
+        advance()
+        while (pos < input.length && /[gimsuy]/.test(peek())) {
+          advance()
+        }
+        return null
+      }
+      if (ch.charCodeAt(0) < 32 && ch !== '\t') {
+        return { valid: false, reason: 'Control character in regex' }
+      }
+      pos++
+    }
+    return { valid: false, reason: 'Unterminated regex literal' }
+  }
+
+  function parseObjectKey(): ValidationResult | null {
+    skipWhitespace()
+    const ch = peek()
+    if (ch === '"' || ch === "'") {
+      return parseString()
+    }
+    if (/[a-zA-Z_]/.test(ch)) {
+      while (pos < input.length && /[a-zA-Z0-9_]/.test(peek())) {
+        advance()
+      }
+      return null
+    }
+    return { valid: false, reason: 'Expected object key (identifier or string)' }
+  }
+
   function parseArg(): ValidationResult | null {
     skipWhitespace()
     const ch = peek()
 
-    if (ch === '{' || ch === '}') {
-      return { valid: false, reason: 'Object literals not allowed in directive args' }
+    if (ch === '}') {
+      return { valid: false, reason: 'Unexpected "}" in directive args' }
     }
     if (ch === '`') {
       return { valid: false, reason: 'Template literals not allowed in directive args' }
@@ -136,6 +199,49 @@ export function validateDirective(raw: string): ValidationResult {
 
     if (ch === '"' || ch === "'") {
       return parseString()
+    }
+
+    if (ch === '/') {
+      return parseRegex()
+    }
+
+    if (ch === '{') {
+      advance()
+      skipWhitespace()
+      if (peek() === '}') {
+        advance()
+        return null
+      }
+      const keyErr = parseObjectKey()
+      if (keyErr) return keyErr
+      skipWhitespace()
+      if (peek() !== ':') {
+        return { valid: false, reason: 'Expected ":" after object key' }
+      }
+      advance()
+      const valErr = parseArg()
+      if (valErr) return valErr
+      skipWhitespace()
+      while (peek() === ',') {
+        advance()
+        skipWhitespace()
+        if (peek() === '}') break
+        const nextKeyErr = parseObjectKey()
+        if (nextKeyErr) return nextKeyErr
+        skipWhitespace()
+        if (peek() !== ':') {
+          return { valid: false, reason: 'Expected ":" after object key' }
+        }
+        advance()
+        const nextValErr = parseArg()
+        if (nextValErr) return nextValErr
+        skipWhitespace()
+      }
+      if (peek() !== '}') {
+        return { valid: false, reason: 'Expected "}" to close object' }
+      }
+      advance()
+      return null
     }
 
     if (ch === '[') {

@@ -79,6 +79,13 @@ interface ResolvedShape {
   wasDynamic: boolean
 }
 
+function formatZodError(err: z.ZodError): string {
+  return err.issues.map(i => {
+    const p = i.path.length > 0 ? `${i.path.join('.')}: ` : ''
+    return `${p}${i.message}`
+  }).join('; ')
+}
+
 export function createModelGuardExtension(config: {
   typeMap: TypeMap
   enumMap: EnumMap
@@ -86,8 +93,10 @@ export function createModelGuardExtension(config: {
   uniqueMap: UniqueMap
   scopeMap: ScopeMap
   contextFn: () => Record<string, unknown>
+  wrapZodErrors?: boolean
 }) {
   const { typeMap, enumMap, zodChains, uniqueMap, scopeMap, contextFn } = config
+  const wrapZodErrors = config.wrapZodErrors ?? false
   const schemaBuilder = createSchemaBuilder(typeMap, zodChains, enumMap)
   const queryBuilder = createQueryBuilder(typeMap, enumMap, uniqueMap)
 
@@ -492,6 +501,28 @@ export function createModelGuardExtension(config: {
     }
   }
 
+  function wrapMethods(
+    methods: Record<string, (body?: unknown) => any>,
+  ): Record<string, (body?: unknown) => any> {
+    const wrapped: Record<string, (body?: unknown) => any> = {}
+    for (const [key, fn] of Object.entries(methods)) {
+      wrapped[key] = (body?: unknown) => {
+        try {
+          return fn(body)
+        } catch (err) {
+          if (err instanceof z.ZodError) {
+            throw new ShapeError(
+              `Validation failed: ${formatZodError(err)}`,
+              { cause: err },
+            )
+          }
+          throw err
+        }
+      }
+    }
+    return wrapped
+  }
+
   return {
     $allModels: {
       guard(this: any, input: GuardInput) {
@@ -503,7 +534,9 @@ export function createModelGuardExtension(config: {
             `Could not resolve Prisma delegate for model "${modelName}" (key: "${delegateKey}")`,
           )
         }
-        return createGuardedMethods(modelName, modelDelegate, input)
+        const methods = createGuardedMethods(modelName, modelDelegate, input)
+        if (!wrapZodErrors) return methods
+        return wrapMethods(methods)
       },
     },
   }

@@ -130,6 +130,7 @@ export interface GuardConfig {
   guardConfig: GuardGeneratedConfig
   uniqueMap?: UniqueMap
   logger?: GuardLogger
+  wrapZodErrors?: boolean
 }
 
 export interface QuerySchema<TCtx = unknown> {

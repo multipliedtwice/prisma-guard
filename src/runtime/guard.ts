@@ -1,11 +1,20 @@
+import { ZodError } from 'zod'
 import type {
   TypeMap, GuardConfig, InputOpts, ModelOpts,
   QueryMethod, ShapeOrFn, QuerySchema, GuardLogger,
 } from '../shared/types.js'
+import { ShapeError } from '../shared/errors.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import { createQueryBuilder } from './query-builder.js'
 import { createScopeExtension } from './scope-extension.js'
 import { createModelGuardExtension } from './model-guard.js'
+
+function formatZodError(err: ZodError): string {
+  return err.issues.map(i => {
+    const p = i.path.length > 0 ? `${i.path.join('.')}: ` : ''
+    return `${p}${i.message}`
+  }).join('; ')
+}
 
 export function createGuard<
   TModels extends TypeMap = TypeMap,
@@ -28,10 +37,30 @@ export function createGuard<
   )
 
   const log: GuardLogger = config.logger ?? { warn: (msg) => console.warn(msg) }
+  const wrapZodErrors = config.wrapZodErrors ?? false
+
+  function rethrowZod(err: unknown): never {
+    if (err instanceof ZodError) {
+      throw new ShapeError(`Validation failed: ${formatZodError(err)}`, { cause: err })
+    }
+    throw err
+  }
 
   return {
-    input: (model: MName, opts: InputOpts) =>
-      schemaBuilder.buildInputSchema(model, opts),
+    input: (model: MName, opts: InputOpts) => {
+      const result = schemaBuilder.buildInputSchema(model, opts)
+      if (!wrapZodErrors) return result
+      return {
+        schema: result.schema,
+        parse(data: unknown): Record<string, unknown> {
+          try {
+            return result.parse(data)
+          } catch (err) {
+            rethrowZod(err)
+          }
+        },
+      }
+    },
 
     model: (model: MName, opts: ModelOpts) =>
       schemaBuilder.buildModelSchema(model, opts),
@@ -40,7 +69,20 @@ export function createGuard<
       model: MName,
       method: QueryMethod,
       config_: ShapeOrFn<TCtx> | Record<string, ShapeOrFn<TCtx>>,
-    ): QuerySchema<TCtx> => queryBuilder.buildQuerySchema(model, method, config_),
+    ): QuerySchema<TCtx> => {
+      const qs = queryBuilder.buildQuerySchema(model, method, config_)
+      if (!wrapZodErrors) return qs
+      return {
+        schemas: qs.schemas,
+        parse(body: unknown, opts?: { ctx?: TCtx }): Record<string, unknown> {
+          try {
+            return qs.parse(body, opts)
+          } catch (err) {
+            rethrowZod(err)
+          }
+        },
+      }
+    },
 
     extension: <TCtx extends Record<string, unknown> = Record<string, unknown>>(
       contextFn: () => TCtx,
@@ -75,6 +117,7 @@ export function createGuard<
         uniqueMap: config.uniqueMap ?? {},
         scopeMap: config.scopeMap,
         contextFn,
+        wrapZodErrors,
       })
 
       return {

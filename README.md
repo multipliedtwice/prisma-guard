@@ -316,9 +316,29 @@ model User {
 
 `@zod` chains apply automatically when the field appears in a `data` shape.
 
-`@zod` directives are validated during `prisma generate`. The generator validates directive syntax, checks that each chained method exists on the field's Zod base type, and attempts to construct the full chain. Invalid chains — such as `.email()` on a Boolean field or `.min("abc")` on a String field — fail generation with a clear error message. Note: some argument-level type mismatches may only be caught if Zod throws at schema construction time. The `@zod` DSL supports a restricted subset of Zod methods, not arbitrary chaining.
+`@zod` directives are validated during `prisma generate`. The generator validates directive syntax, checks that each chained method exists on the field's Zod base type, and attempts to construct the full chain. Invalid chains — such as `.email()` on a Boolean field or `.min("abc")` on a String field — fail generation with a clear error message. Note: some argument-level type mismatches may only be caught if Zod throws at schema construction time.
 
 For list fields, `@zod` chains apply to the `z.array(...)` schema, not to individual elements. For example, `.min(1)` on a `String[]` field enforces a minimum array length of 1, not a minimum string length.
+
+### Supported `@zod` methods
+
+The `@zod` DSL supports a restricted subset of Zod methods. These are the allowed methods:
+
+**String validations:** `min`, `max`, `length`, `email`, `url`, `uuid`, `cuid`, `cuid2`, `ulid`, `trim`, `toLowerCase`, `toUpperCase`, `startsWith`, `endsWith`, `includes`, `regex`, `datetime`, `ip`, `cidr`, `date`, `time`, `duration`, `base64`, `nanoid`, `emoji`
+
+**Number validations:** `int`, `positive`, `nonnegative`, `negative`, `nonpositive`, `finite`, `safe`, `multipleOf`, `step`, `gt`, `gte`, `lt`, `lte`
+
+**Array validations:** `min`, `max`, `length`, `nonempty`
+
+**Field modifiers:** `optional`, `nullable`, `nullish`, `default`, `catch`, `readonly`
+
+Note on field modifiers: prisma-guard already handles `optional` and `nullable` based on Prisma field metadata (`isRequired`, `hasDefault`). Adding `@zod .optional()` or `@zod .nullable()` explicitly will apply the Zod method on top of what prisma-guard already does, which may cause double-wrapping. Use these only when you need to override prisma-guard's default behavior.
+
+Note on `default`: a `@zod .default(...)` chain does not set `hasDefault` in the type map — that comes from Prisma's `@default` attribute. A `@zod .default(...)` adds a Zod-level default, which means Zod will fill in the value if it's undefined, but prisma-guard's create completeness check still treats the field based on the Prisma schema metadata.
+
+### Supported argument types in `@zod` directives
+
+The directive parser accepts these argument types: strings (`'hello'`, `"hello"`), numbers (`42`, `-3.14`, `1e2`), booleans (`true`, `false`), arrays (`[1, 2, 3]`), regex literals (`/^[a-z]+$/i`), and object literals (`{offset: true}`). Identifiers, template literals, `null`, `NaN`, `Infinity`, and function calls are not allowed.
 
 ### `refine` replaces `@zod` chains
 
@@ -828,6 +848,14 @@ When a `refine` callback is provided for a field in `guard.input()`, the callbac
 
 Both `guard.input()` and `guard.model()` reject configurations that specify both `pick` and `omit`. This is enforced at both the type level and at runtime.
 
+### `@zod` field modifiers interact with prisma-guard nullability
+
+Using `@zod .optional()`, `.nullable()`, or `.nullish()` applies the Zod method on top of prisma-guard's own nullability/optionality handling. This can cause double-wrapping. These modifiers are available but should only be used when intentionally overriding default behavior.
+
+### `@zod .default()` does not affect create completeness checks
+
+A `@zod .default(...)` directive adds a Zod-level default but does not set `hasDefault` in the type map. Create completeness validation still uses Prisma schema metadata (`@default`). A field with only `@zod .default(...)` and no Prisma `@default` will still be flagged as missing from create data shapes.
+
 ---
 
 ## Advanced: SQL-backed runtimes
@@ -853,7 +881,7 @@ Libraries like **prisma-sql** make this possible for advanced architectures.
 
 `.guard(shape).method(body)` may throw:
 
-* `ZodError` — Zod validation failures on data or query args
+* `ZodError` — Zod validation failures on data or query args (unless `wrapZodErrors` is enabled)
 * `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, or incomplete create data shapes
 * `CallerError` — missing, unknown, or ambiguous caller in named shapes
 * `PolicyError` — denied scope, missing tenant context, or rejected operations on scoped models (e.g. upsert, findUnique in reject mode)
@@ -865,6 +893,22 @@ All guard errors include `status` and `code` properties for HTTP response mappin
 | `ShapeError`  | 400    | `SHAPE_INVALID`  |
 | `CallerError` | 400    | `CALLER_UNKNOWN` |
 | `PolicyError` | 403    | `POLICY_DENIED`  |
+
+### ZodError wrapping
+
+By default, Zod validation failures throw a raw `ZodError`. This means error handling code must check for both `ZodError` and guard error types.
+
+To unify error handling, pass `wrapZodErrors: true` in the guard config:
+```ts
+const guard = createGuard({
+  ...generatedConfig,
+  wrapZodErrors: true,
+})
+```
+
+When enabled, all `ZodError` thrown during validation is caught and rethrown as `ShapeError` with `status: 400` and `code: 'SHAPE_INVALID'`. The original `ZodError` is preserved as the `cause` property. The error message includes a formatted summary of all Zod issues.
+
+This applies to `guard.input().parse()`, `guard.query().parse()`, and all `.guard(shape).*` methods. `guard.model()` returns a raw `z.ZodObject` and is not affected.
 
 ---
 
@@ -1024,6 +1068,7 @@ Node 22
 | Mutation body validation                   | strict keys    | no          |
 | Shape config validation                    | strict keys    | n/a         |
 | Create completeness validation             | yes            | no          |
+| ZodError wrapping                          | opt-in         | n/a         |
 
 ---
 

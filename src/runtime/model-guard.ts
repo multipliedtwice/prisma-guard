@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type {
   TypeMap, EnumMap, ZodChains, UniqueMap, ScopeMap, GuardShape,
   GuardInput, GuardShapeOrFn, QueryMethod, GuardedModel, DataFieldRefine,
+  NestedIncludeArgs, NestedSelectArgs,
 } from '../shared/types.js'
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
@@ -10,20 +11,35 @@ import { createSchemaBuilder } from './schema-builder.js'
 import {
   createQueryBuilder, isPlainObject, mergeForced, mergeUniqueForced,
   applyBuiltShape, validateUniqueEquality, validateResolvedUniqueWhere,
+  applyForcedTree, applyForcedCountWhere,
 } from './query-builder.js'
-import type { BuiltShape } from './query-builder.js'
+import type { BuiltShape, ForcedTree, BuiltIncludeResult, BuiltSelectResult } from './query-builder.js'
 
 const ALLOWED_BODY_KEYS_CREATE = new Set(['data'])
+const ALLOWED_BODY_KEYS_CREATE_PROJECTION = new Set(['data', 'select', 'include'])
 const ALLOWED_BODY_KEYS_UPDATE = new Set(['data', 'where'])
+const ALLOWED_BODY_KEYS_UPDATE_PROJECTION = new Set(['data', 'where', 'select', 'include'])
 const ALLOWED_BODY_KEYS_DELETE = new Set(['where'])
+const ALLOWED_BODY_KEYS_DELETE_PROJECTION = new Set(['where', 'select', 'include'])
 
 const VALID_SHAPE_KEYS_CREATE = new Set(['data'])
+const VALID_SHAPE_KEYS_CREATE_PROJECTION = new Set(['data', 'select', 'include'])
 const VALID_SHAPE_KEYS_UPDATE = new Set(['data', 'where'])
+const VALID_SHAPE_KEYS_UPDATE_PROJECTION = new Set(['data', 'where', 'select', 'include'])
 const VALID_SHAPE_KEYS_DELETE = new Set(['where'])
+const VALID_SHAPE_KEYS_DELETE_PROJECTION = new Set(['where', 'select', 'include'])
 
 interface BuiltDataSchema {
   schema: z.ZodObject<any>
   forced: Record<string, unknown>
+}
+
+interface BuiltProjection {
+  zodSchema: z.ZodObject<any>
+  forcedIncludeTree: Record<string, ForcedTree>
+  forcedSelectTree: Record<string, ForcedTree>
+  forcedIncludeCountWhere: Record<string, Record<string, unknown>>
+  forcedSelectCountWhere: Record<string, Record<string, unknown>>
 }
 
 const UNIQUE_MUTATION_METHODS = new Set(['update', 'delete'])
@@ -32,6 +48,11 @@ const UNIQUE_READ_METHODS = new Set<string>(['findUnique', 'findUniqueOrThrow'])
 
 const BULK_MUTATION_METHODS = new Set([
   'updateMany', 'updateManyAndReturn', 'deleteMany',
+])
+
+const PROJECTION_MUTATION_METHODS = new Set([
+  'create', 'update', 'delete',
+  'createManyAndReturn', 'updateManyAndReturn',
 ])
 
 function isGuardShape(obj: unknown): obj is GuardShape {
@@ -323,6 +344,7 @@ export function createModelGuardExtension(config: {
     const readShapeCache = new Map<string, BuiltShape>()
     const dataSchemaCache = new Map<string, BuiltDataSchema>()
     const whereBuiltCache = new Map<string, { schema: z.ZodTypeAny | null; forced: Record<string, Record<string, unknown>> }>()
+    const projectionCache = new Map<string, BuiltProjection>()
 
     function getReadShape(
       method: QueryMethod,
@@ -371,6 +393,106 @@ export function createModelGuardExtension(config: {
         return built
       }
       return queryBuilder.buildWhereSchema(modelName, whereConfig)
+    }
+
+    function buildProjectionSchema(shape: GuardShape): BuiltProjection {
+      if (shape.select && shape.include) {
+        throw new ShapeError('Shape cannot define both "select" and "include"')
+      }
+
+      const schemaFields: Record<string, z.ZodTypeAny> = {}
+      let forcedIncludeTree: Record<string, ForcedTree> = {}
+      let forcedSelectTree: Record<string, ForcedTree> = {}
+      let forcedIncludeCountWhere: Record<string, Record<string, unknown>> = {}
+      let forcedSelectCountWhere: Record<string, Record<string, unknown>> = {}
+
+      if (shape.include) {
+        const result = queryBuilder.buildIncludeSchema(
+          modelName,
+          shape.include as Record<string, true | NestedIncludeArgs>,
+        )
+        schemaFields['include'] = result.schema
+        forcedIncludeTree = result.forcedTree
+        forcedIncludeCountWhere = result.forcedCountWhere
+      }
+
+      if (shape.select) {
+        const result = queryBuilder.buildSelectSchema(
+          modelName,
+          shape.select as Record<string, true | NestedSelectArgs>,
+        )
+        schemaFields['select'] = result.schema
+        forcedSelectTree = result.forcedTree
+        forcedSelectCountWhere = result.forcedCountWhere
+      }
+
+      return {
+        zodSchema: z.object(schemaFields).strict(),
+        forcedIncludeTree,
+        forcedSelectTree,
+        forcedIncludeCountWhere,
+        forcedSelectCountWhere,
+      }
+    }
+
+    function getProjection(
+      shape: GuardShape,
+      matchedKey: string,
+      wasDynamic: boolean,
+    ): BuiltProjection {
+      if (!wasDynamic) {
+        const cacheKey = `projection\0${matchedKey}`
+        const cached = projectionCache.get(cacheKey)
+        if (cached) return cached
+        const built = buildProjectionSchema(shape)
+        projectionCache.set(cacheKey, built)
+        return built
+      }
+      return buildProjectionSchema(shape)
+    }
+
+    function resolveProjection(
+      shape: GuardShape,
+      parsed: Record<string, unknown>,
+      method: string,
+      matchedKey: string,
+      wasDynamic: boolean,
+    ): Record<string, unknown> {
+      const hasBodyProjection = 'select' in parsed || 'include' in parsed
+      const hasShapeProjection = !!shape.select || !!shape.include
+
+      if (hasBodyProjection && !hasShapeProjection) {
+        throw new ShapeError(
+          `Guard shape does not define "select" or "include" for ${method} return projection`,
+        )
+      }
+
+      if (!hasShapeProjection) return {}
+
+      const projection = getProjection(shape, matchedKey, wasDynamic)
+
+      const projectionBody: Record<string, unknown> = {}
+      if ('select' in parsed) projectionBody.select = parsed.select
+      if ('include' in parsed) projectionBody.include = parsed.include
+
+      const validated = projection.zodSchema.parse(projectionBody) as Record<string, unknown>
+
+      if (Object.keys(projection.forcedIncludeTree).length > 0) {
+        applyForcedTree(validated, 'include', projection.forcedIncludeTree)
+      }
+      if (Object.keys(projection.forcedSelectTree).length > 0) {
+        applyForcedTree(validated, 'select', projection.forcedSelectTree)
+      }
+      if (Object.keys(projection.forcedIncludeCountWhere).length > 0) {
+        const ic = validated.include as Record<string, unknown> | undefined
+        if (ic) applyForcedCountWhere(ic, projection.forcedIncludeCountWhere)
+      }
+      if (Object.keys(projection.forcedSelectCountWhere).length > 0) {
+        const sc = validated.select as Record<string, unknown> | undefined
+        if (sc) applyForcedCountWhere(sc, projection.forcedSelectCountWhere)
+      }
+
+      return validated
     }
 
     function buildWhereFromShape(
@@ -441,34 +563,60 @@ export function createModelGuardExtension(config: {
     }
 
     function makeCreateMethod(method: string) {
+      const supportsProjection = PROJECTION_MUTATION_METHODS.has(method)
+      const allowedBodyKeys = supportsProjection
+        ? ALLOWED_BODY_KEYS_CREATE_PROJECTION
+        : ALLOWED_BODY_KEYS_CREATE
+      const allowedShapeKeys = supportsProjection
+        ? VALID_SHAPE_KEYS_CREATE_PROJECTION
+        : VALID_SHAPE_KEYS_CREATE
+
       return (body: unknown) => {
         const { shape, body: parsed, matchedKey, wasDynamic } = resolveShape(input, body)
         if (!shape.data) throw new ShapeError(`Guard shape requires "data" for ${method}`)
-        validateMutationShapeKeys(shape, VALID_SHAPE_KEYS_CREATE, method)
-        validateMutationBodyKeys(parsed, ALLOWED_BODY_KEYS_CREATE, method)
+        validateMutationShapeKeys(shape, allowedShapeKeys, method)
+        validateMutationBodyKeys(parsed, allowedBodyKeys, method)
         validateCreateCompleteness(modelName, shape.data)
         const dataSchema = getDataSchema('create', shape.data, matchedKey, wasDynamic)
+
+        let args: Record<string, unknown>
         if (method === 'create') {
           const data = validateAndMergeData(parsed.data, dataSchema, method)
-          return callDelegate('create', { data })
+          args = { data }
+        } else {
+          if (!Array.isArray(parsed.data)) throw new ShapeError(`${method} expects data to be an array`)
+          if (parsed.data.length === 0) throw new ShapeError(`${method} received empty data array`)
+          const data = parsed.data.map((item: unknown) =>
+            validateAndMergeData(item, dataSchema, method),
+          )
+          args = { data }
         }
-        if (!Array.isArray(parsed.data)) throw new ShapeError(`${method} expects data to be an array`)
-        if (parsed.data.length === 0) throw new ShapeError(`${method} received empty data array`)
-        const data = parsed.data.map((item: unknown) =>
-          validateAndMergeData(item, dataSchema, method),
-        )
-        return callDelegate(method, { data })
+
+        if (supportsProjection) {
+          const projectionArgs = resolveProjection(shape, parsed, method, matchedKey, wasDynamic)
+          Object.assign(args, projectionArgs)
+        }
+
+        return callDelegate(method, args)
       }
     }
 
     function makeUpdateMethod(method: string) {
       const isUniqueWhere = method === 'update'
       const isBulk = BULK_MUTATION_METHODS.has(method)
+      const supportsProjection = PROJECTION_MUTATION_METHODS.has(method)
+      const allowedBodyKeys = supportsProjection
+        ? ALLOWED_BODY_KEYS_UPDATE_PROJECTION
+        : ALLOWED_BODY_KEYS_UPDATE
+      const allowedShapeKeys = supportsProjection
+        ? VALID_SHAPE_KEYS_UPDATE_PROJECTION
+        : VALID_SHAPE_KEYS_UPDATE
+
       return (body: unknown) => {
         const { shape, body: parsed, matchedKey, wasDynamic } = resolveShape(input, body)
         if (!shape.data) throw new ShapeError(`Guard shape requires "data" for ${method}`)
-        validateMutationShapeKeys(shape, VALID_SHAPE_KEYS_UPDATE, method)
-        validateMutationBodyKeys(parsed, ALLOWED_BODY_KEYS_UPDATE, method)
+        validateMutationShapeKeys(shape, allowedShapeKeys, method)
+        validateMutationBodyKeys(parsed, allowedBodyKeys, method)
         if (isBulk && !shape.where) {
           throw new ShapeError(`Guard shape requires "where" for ${method} to prevent unconstrained bulk mutations`)
         }
@@ -484,18 +632,34 @@ export function createModelGuardExtension(config: {
         if (isUniqueWhere) {
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap)
         }
-        return callDelegate(method, { data, where })
+
+        const args: Record<string, unknown> = { data, where }
+
+        if (supportsProjection) {
+          const projectionArgs = resolveProjection(shape, parsed, method, matchedKey, wasDynamic)
+          Object.assign(args, projectionArgs)
+        }
+
+        return callDelegate(method, args)
       }
     }
 
     function makeDeleteMethod(method: string) {
       const isUniqueWhere = method === 'delete'
       const isBulk = BULK_MUTATION_METHODS.has(method)
+      const supportsProjection = PROJECTION_MUTATION_METHODS.has(method)
+      const allowedBodyKeys = supportsProjection
+        ? ALLOWED_BODY_KEYS_DELETE_PROJECTION
+        : ALLOWED_BODY_KEYS_DELETE
+      const allowedShapeKeys = supportsProjection
+        ? VALID_SHAPE_KEYS_DELETE_PROJECTION
+        : VALID_SHAPE_KEYS_DELETE
+
       return (body: unknown) => {
         const { shape, body: parsed, matchedKey, wasDynamic } = resolveShape(input, body)
         if (shape.data) throw new ShapeError(`Guard shape "data" is not valid for ${method}`)
-        validateMutationShapeKeys(shape, VALID_SHAPE_KEYS_DELETE, method)
-        validateMutationBodyKeys(parsed, ALLOWED_BODY_KEYS_DELETE, method)
+        validateMutationShapeKeys(shape, allowedShapeKeys, method)
+        validateMutationBodyKeys(parsed, allowedBodyKeys, method)
         if (isBulk && !shape.where) {
           throw new ShapeError(`Guard shape requires "where" for ${method} to prevent unconstrained bulk mutations`)
         }
@@ -509,7 +673,15 @@ export function createModelGuardExtension(config: {
         if (isUniqueWhere) {
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap)
         }
-        return callDelegate(method, { where })
+
+        const args: Record<string, unknown> = { where }
+
+        if (supportsProjection) {
+          const projectionArgs = resolveProjection(shape, parsed, method, matchedKey, wasDynamic)
+          Object.assign(args, projectionArgs)
+        }
+
+        return callDelegate(method, args)
       }
     }
 

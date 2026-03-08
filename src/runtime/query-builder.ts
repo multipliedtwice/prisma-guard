@@ -133,6 +133,18 @@ export interface BuiltShape {
   forcedSelectCountWhere: Record<string, Record<string, unknown>>;
 }
 
+export interface BuiltIncludeResult {
+  schema: z.ZodTypeAny;
+  forcedTree: Record<string, ForcedTree>;
+  forcedCountWhere: Record<string, Record<string, unknown>>;
+}
+
+export interface BuiltSelectResult {
+  schema: z.ZodTypeAny;
+  forcedTree: Record<string, ForcedTree>;
+  forcedCountWhere: Record<string, Record<string, unknown>>;
+}
+
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
   const proto = Object.getPrototypeOf(v);
@@ -204,14 +216,6 @@ export function applyBuiltShape(
   return validated;
 }
 
-/**
- * Recursively merges forced where/include/select conditions into validated
- * query output.
- *
- * Design decision: no depth limit enforced. The ForcedTree structure is
- * produced by buildIncludeSchema/buildSelectSchema from developer-authored
- * shape config. Its depth is transitively bounded by the shape definition.
- */
 export function applyForcedTree(
   validated: Record<string, unknown>,
   key: "include" | "select",
@@ -283,13 +287,6 @@ export function applyForcedTree(
   }
 }
 
-/**
- * Recursively builds a container object from forced-only tree nodes
- * (no client-provided values).
- *
- * Design decision: no depth limit enforced. Depth is transitively bounded
- * by the ForcedTree produced from developer-authored shape config.
- */
 export function buildForcedOnlyContainer(
   tree: Record<string, ForcedTree>,
 ): Record<string, unknown> {
@@ -801,22 +798,10 @@ export function createQueryBuilder(
     return z.union([enumSchema, z.array(enumSchema).min(1)]).optional();
   }
 
-  /**
-   * Recursively builds a Zod schema for `include` shape config.
-   *
-   * Design decision: no depth limit enforced. Include nesting depth is bounded
-   * by the developer-authored shape config, not by client input. Prisma itself
-   * does not limit include depth, so guard does not impose an artificial limit.
-   * Deeply nested shapes are the developer's responsibility.
-   */
   function buildIncludeSchema(
     model: string,
     includeConfig: Record<string, true | NestedIncludeArgs>,
-  ): {
-    schema: z.ZodTypeAny;
-    forcedTree: Record<string, ForcedTree>;
-    forcedCountWhere: Record<string, Record<string, unknown>>;
-  } {
+  ): BuiltIncludeResult {
     const modelFields = typeMap[model];
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
@@ -934,22 +919,10 @@ export function createQueryBuilder(
     };
   }
 
-  /**
-   * Recursively builds a Zod schema for `select` shape config.
-   *
-   * Design decision: no depth limit enforced. Select nesting depth is bounded
-   * by the developer-authored shape config, not by client input. Prisma itself
-   * does not limit select depth, so guard does not impose an artificial limit.
-   * Deeply nested shapes are the developer's responsibility.
-   */
   function buildSelectSchema(
     model: string,
     selectConfig: Record<string, true | NestedSelectArgs>,
-  ): {
-    schema: z.ZodTypeAny;
-    forcedTree: Record<string, ForcedTree>;
-    forcedCountWhere: Record<string, Record<string, unknown>>;
-  } {
+  ): BuiltSelectResult {
     const modelFields = typeMap[model];
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
@@ -1488,5 +1461,11 @@ export function createQueryBuilder(
     };
   }
 
-  return { buildQuerySchema, buildShapeZodSchema, buildWhereSchema };
+  return {
+    buildQuerySchema,
+    buildShapeZodSchema,
+    buildWhereSchema,
+    buildIncludeSchema,
+    buildSelectSchema,
+  };
 }

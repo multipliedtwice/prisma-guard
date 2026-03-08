@@ -38,6 +38,7 @@ database
 * [Before / After prisma-guard](#before--after-prisma-guard)
 * [Schema annotations](#schema-annotations)
 * [The guard API](#the-guard-api)
+* [Mutation return projection](#mutation-return-projection)
 * [Named shapes and caller routing](#named-shapes-and-caller-routing)
 * [Context-dependent shapes](#context-dependent-shapes)
 * [Automatic tenant isolation](#automatic-tenant-isolation)
@@ -366,7 +367,6 @@ Each field in a `data` shape accepts one of three value types:
 * `true` — the client may provide this value; `@zod` chains apply automatically
 * literal value — the server forces this value; the client cannot override it
 * function `(base) => schema` — the client may provide this value; the function receives the base Zod type (without `@zod` chains) and returns a refined schema
-
 ```ts
 await prisma.project
   .guard({
@@ -404,7 +404,6 @@ await prisma.project
     data: req.body,
   })
 ```
-
 ```ts
 await prisma.project
   .guard((ctx) => ({
@@ -536,33 +535,148 @@ A guard shape without `where` on a bulk mutation method throws `ShapeError`. Add
 
 ### Mutation body validation
 
-Mutation bodies are strictly validated. Only expected keys are accepted:
+Mutation bodies are strictly validated. The accepted keys depend on whether the shape defines a return projection (`select` or `include`):
+
+Without projection in shape:
 
 * `create`, `createMany`, `createManyAndReturn`: `data`
 * `update`, `updateMany`, `updateManyAndReturn`: `data`, `where`
 * `delete`, `deleteMany`: `where`
 
-Unknown keys — including `select` and `include` — are rejected with `ShapeError`. Mutation methods do not support `select` or `include` in the guard body. Single-record mutations (`create`, `update`, `delete`) return the full record. Batch mutations (`createMany`, `updateMany`, `deleteMany`) return a `BatchPayload` (count). `createManyAndReturn` and `updateManyAndReturn` return arrays of records.
+With projection in shape (methods that support it):
+
+* `create`, `createManyAndReturn`: `data`, `select`, `include`
+* `update`, `updateManyAndReturn`: `data`, `where`, `select`, `include`
+* `delete`: `where`, `select`, `include`
+
+Unknown keys are rejected with `ShapeError`. If the body contains `select` or `include` but the shape does not define them, the request is rejected.
 
 Guard shape keys are also validated per method:
 
-* create methods accept only `data`
-* update methods accept only `data` and `where`
-* delete methods accept only `where`
+* create methods accept `data`, and optionally `select`/`include` (if the method supports projection)
+* update methods accept `data`, `where`, and optionally `select`/`include`
+* delete methods accept `where`, and optionally `select`/`include`
 
-Shape keys not valid for the method (e.g. `include` on a create shape) throw `ShapeError`.
+Shape keys not valid for the method throw `ShapeError`.
 
 ### Supported shape keys
 
 For reads: `where`, `include`, `select`, `orderBy`, `cursor`, `take`, `skip`, `distinct`, `_count`, `_avg`, `_sum`, `_min`, `_max`, `by`, `having`
 
-For writes: `data`, `where`
+For writes: `data`, `where`, `select`, `include` (select/include only on methods that return records)
 
 ### Supported methods
 
 Reads: `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`, `aggregate`, `groupBy`
 
 Writes: `create`, `createMany`, `createManyAndReturn`, `update`, `updateMany`, `updateManyAndReturn`, `delete`, `deleteMany`
+
+---
+
+## Mutation return projection
+
+Mutations that return records can use `select` and `include` in the guard shape to control which fields and relations are returned. This uses the same shape syntax as reads — the shape whitelists what the client may request, and forced where conditions on nested includes work identically.
+
+### Which methods support projection
+
+| Method                | Returns           | select/include |
+| --------------------- | ----------------- | -------------- |
+| `create`              | record            | yes            |
+| `createMany`          | BatchPayload      | no             |
+| `createManyAndReturn` | record[]          | yes            |
+| `update`              | record            | yes            |
+| `updateMany`          | BatchPayload      | no             |
+| `updateManyAndReturn` | record[]          | yes            |
+| `delete`              | record            | yes            |
+| `deleteMany`          | BatchPayload      | no             |
+
+### Create with projection
+```ts
+await prisma.project
+  .guard({
+    data: { title: true },
+    include: {
+      members: true,
+    },
+  })
+  .create({
+    data: { title: 'New project' },
+    include: { members: true },
+  })
+```
+
+### Update with select
+```ts
+await prisma.project
+  .guard({
+    data: { title: true },
+    where: { id: { equals: true } },
+    select: {
+      id: true,
+      title: true,
+      members: {
+        select: { id: true, email: true },
+      },
+    },
+  })
+  .update({
+    data: { title: 'Updated' },
+    where: { id: { equals: 'abc123' } },
+    select: {
+      id: true,
+      title: true,
+      members: {
+        select: { id: true, email: true },
+      },
+    },
+  })
+```
+
+### Delete with include
+```ts
+await prisma.project
+  .guard({
+    where: { id: { equals: true } },
+    include: { members: true },
+  })
+  .delete({
+    where: { id: { equals: 'abc123' } },
+    include: { members: true },
+  })
+```
+
+### Forced where on nested includes in mutations
+
+Forced where conditions work the same as in reads. This is useful for ensuring tenant-scoped nested data in mutation responses:
+```ts
+await prisma.project
+  .guard({
+    data: { title: true },
+    include: {
+      members: {
+        where: { isActive: { equals: true } },
+      },
+    },
+  })
+  .create({
+    data: { title: 'New project' },
+    include: { members: true },
+  })
+```
+
+The returned `members` will always be filtered to `isActive = true`, regardless of what the client sends.
+
+### Projection is optional
+
+If the shape does not define `select` or `include`, the mutation returns the full record (default Prisma behavior). The projection shape is purely additive — omitting it changes nothing about existing behavior.
+
+### select and include are mutually exclusive
+
+Same as reads: a shape (and a body) cannot define both `select` and `include` at the same level. Doing so throws `ShapeError`.
+
+### Batch methods do not support projection
+
+`createMany`, `updateMany`, and `deleteMany` return `BatchPayload` (a count), not records. Passing `select` or `include` in the shape or body for these methods throws `ShapeError`.
 
 ---
 
@@ -886,7 +1000,7 @@ Use query shape rules to restrict nested write paths you do not want to expose.
 
 ### Nested reads via include are not scope-filtered
 
-The scope extension operates on the top-level operation only. If a query uses `include` or `select` to load a relation that is itself a scoped model, the nested results are not tenant-filtered by the extension. Use forced where conditions in the include/select shape to restrict nested reads.
+The scope extension operates on the top-level operation only. If a query uses `include` or `select` to load a relation that is itself a scoped model, the nested results are not tenant-filtered by the extension. Use forced where conditions in the include/select shape to restrict nested reads. This applies to both read operations and mutation return projections.
 
 ### `findUnique` cannot be safely scoped in Prisma extension mode
 
@@ -918,9 +1032,9 @@ Prisma requires cursor-based pagination to use uniquely-identifiable fields. Gua
 
 `@zod` directives on list fields (e.g. `String[]`) apply to the `z.array(...)` schema, not to individual elements. For example, `.min(1)` on a `String[]` field enforces a minimum array length of 1, not a minimum string length per element.
 
-### Mutation methods do not support `select` or `include`
+### Batch methods do not support return projection
 
-`create`, `update`, `delete` and their batch/many variants do not accept `select` or `include` in the guard body. Passing either is rejected with `ShapeError`. Single-record mutations (`create`, `update`, `delete`) return the full record. Batch mutations (`createMany`, `updateMany`, `deleteMany`) return a `BatchPayload`. `createManyAndReturn` and `updateManyAndReturn` return arrays of records. This may change in a future version.
+`createMany`, `updateMany`, and `deleteMany` return `BatchPayload` (a count). Passing `select` or `include` in the shape or body for these methods throws `ShapeError`.
 
 ### Generated output is TypeScript with ESM imports
 
@@ -1062,7 +1176,7 @@ In most real applications, overhead should be negligible relative to database ro
 
 Static shapes (both single and named) are cached per guard instance and method. In a named shape map, each static entry is cached independently — a map with 9 static entries and 1 context-dependent entry will cache the 9 static entries. Context-dependent shapes (functions) resolve the function on each call because they depend on runtime context and are never cached.
 
-Data schemas containing inline refine functions are also not cached, since the function could close over runtime context values. Data shapes using only `true` and literal values are cached normally.
+Data schemas containing inline refine functions are also not cached, since the function could close over runtime context values. Data shapes using only `true` and literal values are cached normally. Projection schemas (select/include on mutations) are cached independently for static shapes.
 
 ---
 
@@ -1092,6 +1206,8 @@ Data schemas containing inline refine functions are also not cached, since the f
 | scope relation in mutation data        | controlled by `onScopeRelationWrite` (default: error) |
 | incomplete create data shape           | error always                                          |
 | invalid inline refine function         | error always (ShapeError)                             |
+| projection on batch method             | error always                                          |
+| body projection without shape          | error always                                          |
 
 ---
 
@@ -1169,6 +1285,7 @@ Node 22
 | Mutation body validation                   | strict keys    | no          |
 | Shape config validation                    | strict keys    | n/a         |
 | Create completeness validation             | yes            | no          |
+| Mutation return projection                 | yes            | manual      |
 | Inline field refine in data shapes         | yes            | n/a         |
 | ZodError wrapping                          | opt-in         | n/a         |
 
@@ -1178,7 +1295,6 @@ Node 22
 
 Possible future improvements:
 
-* `select`/`include` support for mutation return values
 * optional nested-write enforcement helpers
 * richer relation-level policies
 * logical combinator support in where shapes (`AND`/`OR`/`NOT`)

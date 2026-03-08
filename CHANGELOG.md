@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.0.1...v1.1.0) (2026-03-08)
+
+
+### Features
+
+* **model-guard.ts:** add support for projection in create, update, and delete methods to enhance data handling flexibility ([dc6c7ec](https://github.com/multipliedtwice/prisma-guard/commit/dc6c7ec6027046ecaca098be41da089fa878f3ce))
+
 ## [1.0.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.0.0...v1.0.1) (2026-03-08)
 
 

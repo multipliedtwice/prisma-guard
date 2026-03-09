@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.1.0...v1.2.0) (2026-03-09)
+
+
+### Features
+
+* Logical combinators and Relation filters in where shapes ([29e2d1f](https://github.com/multipliedtwice/prisma-guard/commit/29e2d1fd62257114e591cc6fd680c9c493f2b3a4))
+
 # [1.1.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.0.1...v1.1.0) (2026-03-08)
 
 

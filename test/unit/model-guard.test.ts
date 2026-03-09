@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createModelGuardExtension } from "../../src/runtime/model-guard";
-import { ShapeError, CallerError } from "../../src/shared/errors";
+import { ShapeError, CallerError, PolicyError } from "../../src/shared/errors";
 import type {
   TypeMap,
   EnumMap,
   ZodChains,
+  ZodDefaults,
   UniqueMap,
 } from "../../src/shared/types";
 
@@ -118,6 +119,7 @@ const typeMap: TypeMap = {
 
 const enumMap: EnumMap = {};
 const zodChains: ZodChains = {};
+const zodDefaults: ZodDefaults = {};
 const uniqueMap: UniqueMap = {
   Project: [["id"]],
   Task: [["id"]],
@@ -163,6 +165,7 @@ function makeExtension(
     typeMap,
     enumMap,
     zodChains,
+    zodDefaults,
     uniqueMap,
     scopeMap: {
       Project: [{ fk: 'tenantId', root: 'Tenant', relationName: 'tenant' }],
@@ -490,6 +493,51 @@ describe("model-guard", () => {
       guarded.createManyAndReturn({ data: [{ title: "A" }] });
       expect(calls.createManyAndReturn.length).toBe(1);
     });
+
+    it("createMany passes skipDuplicates through", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+        },
+      );
+
+      guarded.createMany({
+        data: [{ title: "A" }],
+        skipDuplicates: true,
+      });
+
+      expect(calls.createMany.length).toBe(1);
+      expect(calls.createMany[0].skipDuplicates).toBe(true);
+    });
+
+    it("createMany rejects non-boolean skipDuplicates", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+        },
+      );
+
+      expect(() =>
+        guarded.createMany({
+          data: [{ title: "A" }],
+          skipDuplicates: "yes",
+        }),
+      ).toThrow(ShapeError);
+    });
   });
 
   describe("update methods", () => {
@@ -630,7 +678,7 @@ describe("model-guard", () => {
     });
   });
 
-  describe("bulk mutation where requirement (H2)", () => {
+  describe("bulk mutation where requirement", () => {
     it("updateMany requires where shape", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
@@ -997,7 +1045,7 @@ describe("model-guard", () => {
   });
 
   describe("named shapes / caller routing", () => {
-    it("routes to correct shape by caller", () => {
+    it("routes to correct shape by explicit caller", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
@@ -1014,10 +1062,10 @@ describe("model-guard", () => {
             data: { title: true },
           },
         },
+        "/admin/projects",
       );
 
       guarded.create({
-        caller: "/admin/projects",
         data: { title: "New", status: "active" },
       });
 
@@ -1063,11 +1111,11 @@ describe("model-guard", () => {
             data: { title: true },
           },
         },
+        "/unknown/route",
       );
 
       expect(() =>
         guarded.create({
-          caller: "/unknown/route",
           data: { title: "x" },
         }),
       ).toThrow(CallerError);
@@ -1088,10 +1136,10 @@ describe("model-guard", () => {
             where: { id: { equals: true } },
           },
         },
+        "/projects/abc123",
       );
 
       guarded.update({
-        caller: "/projects/abc123",
         data: { title: "Updated" },
         where: { id: { equals: "abc123" } },
       });
@@ -1099,8 +1147,34 @@ describe("model-guard", () => {
       expect(calls.update.length).toBe(1);
     });
 
-    it("strips caller from body before validation", () => {
+    it("rejects caller in body for named shapes", () => {
       const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          "/admin": {
+            where: { title: { contains: true } },
+          },
+        },
+      );
+
+      expect(() =>
+        guarded.findMany({
+          caller: "/admin",
+          where: { title: { contains: "x" } },
+        }),
+      ).toThrow(CallerError);
+    });
+
+    it("resolves caller from context function", () => {
+      const ext = makeExtension({
+        contextFn: () => ({ caller: "/admin" }),
+      });
       const { calls, handler } = makeDelegateMock();
 
       const guarded = ext.$allModels.guard.call(
@@ -1116,7 +1190,6 @@ describe("model-guard", () => {
       );
 
       guarded.findMany({
-        caller: "/admin",
         where: { title: { contains: "x" } },
       });
 
@@ -1150,7 +1223,7 @@ describe("model-guard", () => {
       expect(calls.update.length).toBe(1);
     });
 
-    it("resolves named shape function with context", () => {
+    it("resolves named shape function with context via caller arg", () => {
       const ext = makeExtension({
         contextFn: () => ({ role: "editor" }),
       });
@@ -1169,14 +1242,92 @@ describe("model-guard", () => {
                 : { title: true },
           }),
         },
+        "/projects",
       );
 
       guarded.create({
-        caller: "/projects",
         data: { title: "x" },
       });
 
       expect(calls.create.length).toBe(1);
+    });
+  });
+
+  describe("context validation", () => {
+    it("throws PolicyError when contextFn returns null", () => {
+      const ext = makeExtension({
+        contextFn: () => null as any,
+      });
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          "/admin": { data: { title: true } },
+        },
+      );
+
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+    });
+
+    it("throws PolicyError when contextFn returns array", () => {
+      const ext = makeExtension({
+        contextFn: () => [] as any,
+      });
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          "/admin": { data: { title: true } },
+        },
+      );
+
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+    });
+
+    it("throws PolicyError when contextFn returns primitive", () => {
+      const ext = makeExtension({
+        contextFn: () => 42 as any,
+      });
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          "/admin": { data: { title: true } },
+        },
+      );
+
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+    });
+
+    it("throws PolicyError for null context in dynamic shape", () => {
+      const ext = makeExtension({
+        contextFn: () => null as any,
+      });
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        (ctx: any) => ({
+          data: { title: true },
+        }),
+      );
+
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
     });
   });
 
@@ -1193,6 +1344,7 @@ describe("model-guard", () => {
         {
           "/admin": { data: { title: true } },
         },
+        "/admin",
       );
 
       expect(() => guarded.create("not an object")).toThrow(ShapeError);

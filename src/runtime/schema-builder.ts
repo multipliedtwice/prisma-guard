@@ -84,7 +84,7 @@ export function createSchemaBuilder(
     }
 
     const mode = opts.mode ?? 'create'
-    const allowNull = opts.allowNull ?? false
+    const allowNull = opts.allowNull ?? true
 
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
@@ -247,11 +247,13 @@ export function createSchemaBuilder(
     }
 
     if (opts._count) {
-      const relationNames = Object.keys(modelFields).filter(n => modelFields[n].isRelation)
+      const listRelationNames = Object.keys(modelFields).filter(n =>
+        modelFields[n].isRelation && modelFields[n].isList,
+      )
 
       if (opts._count === true) {
         const countFields: Record<string, z.ZodTypeAny> = {}
-        for (const relName of relationNames) {
+        for (const relName of listRelationNames) {
           countFields[relName] = z.number().int().min(0)
         }
         schemaMap['_count'] = z.object(countFields)
@@ -260,6 +262,7 @@ export function createSchemaBuilder(
         for (const relName of Object.keys(opts._count)) {
           if (!modelFields[relName]) throw new ShapeError(`Unknown field "${relName}" on model "${model}" in _count`)
           if (!modelFields[relName].isRelation) throw new ShapeError(`Field "${relName}" is not a relation on model "${model}" in _count`)
+          if (!modelFields[relName].isList) throw new ShapeError(`Field "${relName}" is a to-one relation on model "${model}" in _count. Only to-many relations support _count.`)
           countFields[relName] = z.number().int().min(0)
         }
         schemaMap['_count'] = z.object(countFields)

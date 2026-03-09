@@ -5,7 +5,7 @@ export function emitClient(dmmf: DMMF.Document): string {
   const modelEntries = dmmf.datamodel.models
     .map(model => {
       const key = toDelegateKey(model.name)
-      return `    ${key}: {\n      guard(input: GuardInput): GuardedModel<PrismaClient['${key}']>\n    }`
+      return `    ${key}: {\n      guard(input: GuardInput, caller?: string): GuardedModel<PrismaClient['${key}']>\n    }`
     })
     .join('\n')
 
@@ -13,7 +13,7 @@ export function emitClient(dmmf: DMMF.Document): string {
     `import type { PrismaClient } from '@prisma/client'\n` +
     `import type { GuardInput, GuardedModel } from 'prisma-guard'\n` +
     `import { createGuard } from 'prisma-guard'\n` +
-    `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP } from './index.js'\n` +
+    `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from './index.js'\n` +
     `import type { ScopeRoot } from './index.js'\n\n` +
     `interface GuardModelExtension {\n${modelEntries}\n}\n\n` +
     `export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({\n` +
@@ -23,6 +23,7 @@ export function emitClient(dmmf: DMMF.Document): string {
     `  zodChains: ZOD_CHAINS,\n` +
     `  guardConfig: GUARD_CONFIG,\n` +
     `  uniqueMap: UNIQUE_MAP,\n` +
+    `  zodDefaults: ZOD_DEFAULTS,\n` +
     `})\n`
   )
 }

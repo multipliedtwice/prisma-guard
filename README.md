@@ -38,6 +38,8 @@ database
 * [Before / After prisma-guard](#before--after-prisma-guard)
 * [Schema annotations](#schema-annotations)
 * [The guard API](#the-guard-api)
+* [Logical combinators in where shapes](#logical-combinators-in-where-shapes)
+* [Relation filters in where shapes](#relation-filters-in-where-shapes)
 * [Mutation return projection](#mutation-return-projection)
 * [Named shapes and caller routing](#named-shapes-and-caller-routing)
 * [Context-dependent shapes](#context-dependent-shapes)
@@ -303,7 +305,7 @@ model Tenant {
 
 Models with a single unambiguous foreign key to a scope root are auto-scoped. A model can be scoped by multiple roots if it has foreign keys to different scope root models — see [Multi-root scope behavior](#multi-root-scope-behavior).
 
-If a model has multiple foreign keys to the same scope root, it is excluded from the auto-scope map when `onAmbiguousScope` is `"warn"` or `"ignore"`, and causes a generation error when `onAmbiguousScope` is `"error"` (the default).
+If a model has multiple foreign keys to the same scope root, the ambiguous root is excluded from that model's scope entries when `onAmbiguousScope` is `"warn"` or `"ignore"`, and causes a generation error when `onAmbiguousScope` is `"error"` (the default). Other non-ambiguous roots on the same model are still auto-scoped.
 
 ### Add field-level validation with `@zod`
 ```prisma
@@ -336,7 +338,7 @@ The `@zod` DSL supports a restricted subset of Zod methods. These are the allowe
 
 Note on field modifiers: prisma-guard already handles `optional` and `nullable` based on Prisma field metadata (`isRequired`, `hasDefault`). Adding `@zod .optional()` or `@zod .nullable()` explicitly will apply the Zod method on top of what prisma-guard already does, which may cause double-wrapping. Use these only when you need to override prisma-guard's default behavior.
 
-Note on `default`: a `@zod .default(...)` chain does not set `hasDefault` in the type map — that comes from Prisma's `@default` attribute. A `@zod .default(...)` adds a Zod-level default, which means Zod will fill in the value if it's undefined, but prisma-guard's create completeness check still treats the field based on the Prisma schema metadata.
+Note on `default`: a `@zod .default(...)` chain adds a Zod-level default, which means Zod will fill in the value if it's undefined. The generator detects `.default()` in chains and emits a `ZOD_DEFAULTS` map. The create completeness check honors both Prisma's `@default` attribute and `@zod .default(...)` — a required field with either source of default is not flagged as missing from create data shapes. Prisma's `@default` remains the primary source of truth; `@zod .default(...)` is an additional signal.
 
 Note on chain ordering: type-changing methods like `.nullable()`, `.optional()`, `.default()`, and `.catch()` alter the wrapper type. Methods that follow a type-changing method must exist on the resulting wrapper, not on the original base type. For example, `.email().nullable()` is valid (`.email()` returns a string schema, `.nullable()` wraps it), but `.nullable().email()` is invalid (`.nullable()` returns a nullable wrapper that does not have `.email()`).
 
@@ -387,38 +389,7 @@ await prisma.project
 
 In this example, `title` and `priority` use inline refines for custom validation and error messages, `status` uses `@zod` chains from the Prisma schema, and `createdBy` is forced to `currentUserId` regardless of client input.
 
-Inline refines work everywhere data shapes are used — single shapes, named shapes, and context-dependent shapes:
-```ts
-await prisma.project
-  .guard({
-    '/admin/projects': {
-      data: {
-        title: (base) => base.min(1).max(500),
-        status: true,
-        priority: (base) => base.refine(v => v >= 1 && v <= 10, 'Priority 1-10'),
-      },
-    },
-    '/editor/projects': {
-      data: {
-        title: (base) => base.min(1).max(200),
-      },
-    },
-  })
-  .create({
-    caller: req.headers['x-caller'],
-    data: req.body,
-  })
-```
-```ts
-await prisma.project
-  .guard((ctx) => ({
-    data: {
-      title: (base) => base.min(1).max(ctx.role === 'admin' ? 500 : 200),
-      status: ctx.role === 'admin' ? true : 'draft',
-    },
-  }))
-  .create({ data: req.body })
-```
+Relation fields are not permitted in `data` shapes. Attempting to use a relation field in a data shape throws `ShapeError`. See [Limitations](#guarded-data-shapes-do-not-permit-relation-fields).
 
 ### Query shape syntax
 
@@ -448,7 +419,7 @@ await prisma.project
 
 Only `title` and `status` are accepted from the client. `@zod` chains apply automatically.
 
-For create operations, guard validates that all required fields without defaults are accounted for in the data shape — either as client-allowed (`true` or function), forced (literal value), or as scope foreign keys that the scope extension will inject automatically. If a required non-default field is missing from the shape and is not a scope FK, guard throws `ShapeError` at shape evaluation time.
+For create operations, guard validates that all required fields without defaults are accounted for in the data shape — either as client-allowed (`true` or function), forced (literal value), as scope foreign keys that the scope extension will inject automatically, or as fields with a `@zod .default(...)` directive. If a required field is missing from the shape and has no Prisma `@default`, no `@zod .default(...)`, and is not a scope FK, guard throws `ShapeError` at shape evaluation time.
 
 ### Updates
 ```ts
@@ -492,6 +463,8 @@ await prisma.project
 
 `status = 'published'` is always enforced. The client can only control the `title` filter.
 
+Forced where conditions are conflict-checked during shape construction. If the same field and operator appear with different forced values in different parts of a shape (e.g. at the top level and inside a combinator), the shape is rejected with `ShapeError`. This prevents ambiguous security configurations where one forced value would silently overwrite another.
+
 ### Deletes
 ```ts
 await prisma.project
@@ -521,6 +494,8 @@ Each item in the array is validated against the same data shape.
 
 In guarded mode, `createMany` and `createManyAndReturn` require `data` to be an array. Single-object data is not silently wrapped.
 
+`createMany` and `createManyAndReturn` also accept `skipDuplicates: boolean` in the request body. This is passed through to Prisma without shape-level configuration.
+
 ### Bulk mutations
 
 `updateMany`, `updateManyAndReturn`, and `deleteMany` require a `where` shape in the guard definition. This prevents accidental unconstrained bulk writes.
@@ -544,15 +519,19 @@ Mutation bodies are strictly validated. The accepted keys depend on whether the 
 
 Without projection in shape:
 
-* `create`, `createMany`, `createManyAndReturn`: `data`
+* `create`: `data`
+* `createMany`, `createManyAndReturn`: `data`, `skipDuplicates`
 * `update`, `updateMany`, `updateManyAndReturn`: `data`, `where`
 * `delete`, `deleteMany`: `where`
 
 With projection in shape (methods that support it):
 
-* `create`, `createManyAndReturn`: `data`, `select`, `include`
+* `create`: `data`, `select`, `include`
+* `createManyAndReturn`: `data`, `select`, `include`, `skipDuplicates`
 * `update`, `updateManyAndReturn`: `data`, `where`, `select`, `include`
 * `delete`: `where`, `select`, `include`
+
+For `createMany` and `createManyAndReturn`, `skipDuplicates` is also accepted as a body key. It must be a boolean if provided.
 
 Unknown keys are rejected with `ShapeError`. If the body contains `select` or `include` but the shape does not define them, the request is rejected.
 
@@ -570,11 +549,217 @@ For reads: `where`, `include`, `select`, `orderBy`, `cursor`, `take`, `skip`, `d
 
 For writes: `data`, `where`, `select`, `include` (select/include only on methods that return records)
 
+Where shapes accept scalar field filters, relation filters (`some`, `every`, `none`, `is`, `isNot`), and logical combinators (`AND`, `OR`, `NOT`).
+
+### Where DSL is a constrained Prisma subset
+
+The where shape syntax supports a subset of Prisma's where filter API. Notable differences from raw Prisma where clauses:
+
+* The `not` operator accepts a scalar value only, not a nested filter object. Prisma's `{ not: { gt: 5 } }` form is not supported.
+* `AND` and `OR` in client input must be arrays. Prisma accepts a single object for `AND`; prisma-guard requires an array.
+* Relation filter operators (`some`, `every`, `none`, `is`, `isNot`) require at least one nested condition when all conditions are client-controlled. Empty relation filters like `{ posts: { some: {} } }` are rejected.
+* Relation operator containers require at least one operator when no forced values are present. `{ posts: {} }` is rejected.
+* Forced where conditions are conflict-checked at shape construction time. The same field and operator with different forced values across shape branches (e.g. top-level vs inside a combinator) is rejected with `ShapeError`.
+
+These restrictions are intentional. They prevent clients from sending structurally valid but semantically vacuous filters that could broaden query scope, particularly in bulk mutation where clauses.
+
 ### Supported methods
 
 Reads: `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`, `aggregate`, `groupBy`
 
 Writes: `create`, `createMany`, `createManyAndReturn`, `update`, `updateMany`, `updateManyAndReturn`, `delete`, `deleteMany`
+
+---
+
+## Logical combinators in where shapes
+
+Where shapes support `AND`, `OR`, and `NOT` to compose filter conditions. The combinator value is a where config defining allowed fields inside the combinator:
+```ts
+await prisma.project
+  .guard({
+    where: {
+      OR: {
+        title: { contains: true },
+        description: { contains: true },
+      },
+    },
+    take: { max: 50 },
+  })
+  .findMany({
+    where: {
+      OR: [
+        { title: { contains: 'demo' } },
+        { description: { contains: 'demo' } },
+      ],
+    },
+  })
+```
+
+The shape defines which fields are allowed inside each combinator. The client sends arrays for `AND`/`OR` and an object or array for `NOT`.
+
+Forced values inside combinators are lifted to the top-level query as AND conditions, regardless of the combinator type. This means a forced value inside an `OR` shape does not become an OR branch — it becomes an additional AND constraint on the entire query. This is consistent with the fail-closed design: forced values always restrict, never broaden.
+```ts
+await prisma.project
+  .guard({
+    where: {
+      title: { contains: true },
+      NOT: {
+        status: { equals: 'archived' },
+      },
+    },
+  })
+  .findMany({
+    where: { title: { contains: 'demo' } },
+  })
+```
+
+`status = 'archived'` is always excluded regardless of client input.
+
+Combinators can be nested and mixed with scalar fields freely. The same field can appear both at the top level and inside a combinator.
+
+If the same field and operator appear as forced values in different parts of the shape (e.g. top-level and inside an `AND` combinator), the forced values are conflict-checked. Identical values are deduplicated. Different values throw `ShapeError` — this prevents ambiguous security configurations from silently degrading.
+
+---
+
+## Relation filters in where shapes
+
+Where shapes support relation-level filters using Prisma's relation operators. To-many relations support `some`, `every`, and `none`. To-one relations support `is` and `isNot`.
+```ts
+await prisma.user
+  .guard({
+    where: {
+      posts: {
+        some: {
+          title: { contains: true },
+          published: { equals: true },
+        },
+      },
+    },
+  })
+  .findMany({
+    where: {
+      posts: {
+        some: {
+          title: { contains: 'guide' },
+          published: { equals: true },
+        },
+      },
+    },
+  })
+```
+
+Each relation operator value is a nested where config for the related model. All where features — scalar operators, forced values, logical combinators, and nested relation filters — work recursively inside relation filters.
+
+### Forced values in relation filters
+```ts
+await prisma.user
+  .guard({
+    where: {
+      posts: {
+        some: {
+          title: { contains: true },
+          status: { equals: 'published' },
+        },
+      },
+    },
+  })
+  .findMany({
+    where: {
+      posts: {
+        some: { title: { contains: 'guide' } },
+      },
+    },
+  })
+```
+
+`status = 'published'` is always enforced inside the `some` operator.
+
+### To-one relations
+```ts
+await prisma.post
+  .guard({
+    where: {
+      author: {
+        is: {
+          role: { equals: true },
+        },
+      },
+    },
+  })
+  .findMany({
+    where: {
+      author: {
+        is: { role: { equals: 'ADMIN' } },
+      },
+    },
+  })
+```
+
+### Combined with logical combinators
+```ts
+await prisma.user
+  .guard({
+    where: {
+      OR: {
+        posts: {
+          some: { published: { equals: true } },
+        },
+        profile: {
+          is: { bio: { contains: true } },
+        },
+      },
+    },
+  })
+  .findMany({
+    where: {
+      OR: [
+        { posts: { some: { published: { equals: true } } } },
+        { profile: { is: { bio: { contains: 'engineer' } } } },
+      ],
+    },
+  })
+```
+
+Using an unsupported operator for the relation type throws `ShapeError`. For example, `some` on a to-one relation or `is` on a to-many relation is rejected.
+
+### Non-empty relation filter enforcement
+
+When all conditions inside a relation operator are client-controlled (no forced values), the client must provide at least one condition. Empty nested where objects are rejected:
+```ts
+// Shape allows filtering posts by title
+where: {
+  posts: {
+    some: {
+      title: { contains: true },
+    },
+  },
+}
+
+// This is rejected — at least one condition required
+{ where: { posts: { some: {} } } }
+
+// This is accepted
+{ where: { posts: { some: { title: { contains: 'demo' } } } } }
+```
+
+When a relation operator contains forced values, the client may omit all client-controlled conditions. The forced values are still injected:
+```ts
+// Shape forces status filter, client controls title
+where: {
+  posts: {
+    some: {
+      status: { equals: 'published' },
+      title: { contains: true },
+    },
+  },
+}
+
+// Accepted — forced status is still applied
+{ where: { posts: { some: {} } } }
+// Becomes: { posts: { some: { status: { equals: 'published' } } } }
+```
+
+Similarly, if all operators on a relation are forced or no operators have client-controlled conditions, the relation operator container itself may be empty or absent.
 
 ---
 
@@ -687,7 +872,9 @@ Same as reads: a shape (and a body) cannot define both `select` and `include` at
 
 ## Named shapes and caller routing
 
-Different pages or API consumers often need different shapes for the same model. Named shapes route requests to the right shape based on a `caller` field.
+Different pages or API consumers often need different shapes for the same model. Named shapes route requests to the right shape based on a caller value.
+
+Caller is provided as the second argument to `.guard()` or via the context function — never in the request body. This keeps the method body clean and Prisma-compatible.
 
 Caller keys must not collide with reserved shape config keys (`where`, `data`, `include`, `select`, `orderBy`, etc.). Using a reserved key as a caller path throws `ShapeError`.
 
@@ -703,11 +890,8 @@ await prisma.project
       where: { title: { contains: true } },
       take: { max: 20, default: 10 },
     },
-  })
-  .findMany({
-    caller: req.headers['x-caller'],
-    ...req.body,
-  })
+  }, req.headers['x-caller'])
+  .findMany(req.body)
 ```
 
 The frontend sends its current route as a header:
@@ -720,7 +904,7 @@ fetch('/api/projects', {
 })
 ```
 
-The backend extracts `caller` from the body, matches it against the shape map, strips it, and validates the rest.
+The backend passes `caller` as the second argument to `.guard()`. The request body contains only Prisma-compatible fields.
 
 ### Named mutation shapes
 ```ts
@@ -734,9 +918,8 @@ await prisma.project
       data: { title: true },
       where: { id: { equals: true } },
     },
-  })
+  }, req.headers['x-caller'])
   .update({
-    caller: req.headers['x-caller'],
     data: req.body.data,
     where: { id: { equals: req.params.id } },
   })
@@ -757,14 +940,37 @@ await prisma.project
         title: (base) => base.min(1).max(100),
       },
     },
-  })
-  .create({
-    caller: req.headers['x-caller'],
-    data: req.body,
-  })
+  }, req.headers['x-caller'])
+  .create({ data: req.body })
 ```
 
 All data shape value types (`true`, literal, function) work in named shapes, context-dependent shapes, and single shapes.
+
+### Caller resolution order
+
+Caller is resolved in priority order:
+
+1. **Explicit argument** — `.guard(shapes, '/admin/projects')` always wins
+2. **Context function** — if the context object has a `caller` string property, it is used as the default
+3. **None** — if neither source provides a caller and the shape is a named map, `CallerError` is thrown
+
+This enables three usage patterns:
+```ts
+// 1. Per-request via context (set once, used everywhere)
+guard.extension(() => ({
+  Tenant: store.getStore()?.tenantId,
+  caller: store.getStore()?.caller,
+}))
+await prisma.project.guard(shapes).findMany(req.body)
+
+// 2. Explicit override per call
+await prisma.project.guard(shapes, '/admin/projects').findMany(req.body)
+
+// 3. Single shape (no caller needed)
+await prisma.project.guard({ where: { ... } }).findMany(req.body)
+```
+
+The `caller` key in the context object is not used for scope injection — it is only used for shape routing. Scope roots are identified by matching context keys against `@scope-root` model names.
 
 ### Parameterized caller patterns
 ```text
@@ -778,21 +984,26 @@ Matching is case-sensitive. Exact matches are checked first. If no exact match i
 
 If `caller` is missing or doesn't match any pattern, the request is rejected with a `CallerError`. If a caller matches multiple parameterized patterns, it is also rejected with a `CallerError`.
 
+If a request body contains a `caller` field when using named shapes, it is rejected with a `CallerError` that directs the developer to use the second argument to `.guard()` or the context function instead.
+
 ---
 
 ## Context-dependent shapes
 
-Shapes can be functions that receive the context provided to `guard.extension()`. This is the same context used for tenant scoping — no separate mechanism.
+Shapes can be functions that receive the context provided to `guard.extension()`. This is the same context used for tenant scoping and caller routing — no separate mechanism.
 ```ts
 const prisma = new PrismaClient().$extends(
   guard.extension(() => ({
     Tenant: store.getStore()?.tenantId,
     role: store.getStore()?.role,
+    caller: store.getStore()?.caller,
   }))
 )
 ```
 
-The context function returns an object with arbitrary keys. Keys whose values are `string`, `number`, or `bigint` and that match a scope root model name are used as scope context for tenant isolation. Other keys (like `role` in the example above) are passed through to shape functions but are not used for scoping.
+The context function returns an object with arbitrary keys. Keys whose values are `string`, `number`, or `bigint` and that match a scope root model name are used as scope context for tenant isolation. The `caller` key (if a string) is used as the default caller for named shape routing. Other keys (like `role` in the example above) are passed through to shape functions but are not used for scoping or routing.
+
+The context function must return a plain object. If it returns `null`, `undefined`, an array, a primitive, or any non-plain-object value, a `PolicyError` is thrown. This is enforced consistently across all code paths that consume context — scope injection, caller resolution, and dynamic shape evaluation.
 
 Dynamic shape functions must return a plain guard shape object. If the function throws or returns a non-object value, a `ShapeError` is raised.
 
@@ -839,13 +1050,10 @@ await prisma.project
       take: { max: 20 },
     },
   })
-  .findMany({
-    caller: req.headers['x-caller'],
-    ...req.body,
-  })
+  .findMany(req.body)
 ```
 
-Static shapes and function shapes can be mixed freely in the same shape map.
+Static shapes and function shapes can be mixed freely in the same shape map. In this example, the caller is resolved from `contextFn().caller` since no explicit caller is passed.
 
 ---
 
@@ -878,7 +1086,7 @@ This applies to all top-level operations on scoped models, including reads, writ
 ### What is NOT scoped
 
 * Nested reads loaded via `include` or `select` — use forced where conditions in the shape to restrict these (to-many relations only; see [Limitations](#limitations))
-* Nested writes — Prisma extension hooks operate on top-level operations only
+* Nested writes — Prisma extension hooks operate on top-level operations only. Guarded data shapes reject relation fields entirely, so nested writes are only possible through raw (unguarded) Prisma calls.
 * `$queryRaw` and `$executeRaw` — raw SQL bypasses all guard protections
 * `upsert` on scoped models — rejected with `PolicyError`; handle explicitly in route logic
 
@@ -1019,7 +1227,7 @@ These limitations are real and should be treated as part of the security model.
 
 Prisma extension hooks operate on top-level operations. Nested writes do not trigger separate scope interception.
 
-Use query shape rules to restrict nested write paths you do not want to expose.
+Guarded data shapes reject relation fields entirely — using a relation field in a `data` shape throws `ShapeError`. This means nested writes (e.g. `{ author: { connect: { id: '...' } } }`) are only possible through raw (unguarded) Prisma calls. The guard layer prevents them in guarded mutations, not by intercepting nested writes, but by refusing to include relation fields in the data shape.
 
 ### Nested reads via include are not scope-filtered
 
@@ -1043,19 +1251,9 @@ Guard shapes for `findUnique` and `findUniqueOrThrow` must define `where`. A sha
 
 ### Composite foreign keys to scope roots
 
-If a model references a scope root through composite foreign keys, it is excluded from the auto-scope map when `onAmbiguousScope` is `"warn"` or `"ignore"`, and causes a generation error when `onAmbiguousScope` is `"error"` (the default).
+If a model references a scope root through composite foreign keys, that specific root is excluded from the model's scope entries when `onAmbiguousScope` is `"warn"` or `"ignore"`, and causes a generation error when `onAmbiguousScope` is `"error"` (the default). Other non-ambiguous roots on the same model are still auto-scoped.
 
 Handle these models explicitly via shape rules.
-
-### No logical combinators in where shapes
-
-Guard `where` shapes define field-level operator filters. Logical combinators (`AND`, `OR`, `NOT`) are not supported in shape definitions. These are Prisma client-side features that cannot be meaningfully restricted through a static shape.
-
-If you need logical combinators, use context-dependent shapes to construct the full where condition server-side.
-
-### No relation filters in where shapes
-
-Guard `where` shapes only support scalar field filters. Relation-level filters (e.g. `posts: { some: { ... } }`) are not supported.
 
 ### Cursor fields must cover a unique constraint
 
@@ -1093,10 +1291,6 @@ Both `guard.input()` and `guard.model()` reject configurations that specify both
 
 Using `@zod .optional()`, `.nullable()`, or `.nullish()` applies the Zod method on top of prisma-guard's own nullability/optionality handling. This can cause double-wrapping. These modifiers are available but should only be used when intentionally overriding default behavior.
 
-### `@zod .default()` does not affect create completeness checks
-
-A `@zod .default(...)` directive adds a Zod-level default but does not set `hasDefault` in the type map. Create completeness validation still uses Prisma schema metadata (`@default`). A field with only `@zod .default(...)` and no Prisma `@default` will still be flagged as missing from create data shapes.
-
 ### Inline refine functions are not cached
 
 Data schemas containing inline refine functions are rebuilt on every request, since the function reference could be context-dependent (e.g. when used inside a dynamic shape that closes over context values). Static data shapes using only `true` and literal values are cached normally.
@@ -1108,6 +1302,26 @@ Prisma supports negative `take` for reverse cursor pagination. prisma-guard rest
 ### `skip` in shape config is a permission flag
 
 `skip: true` in a shape config means the client is allowed to provide a `skip` value. The actual `skip` value must be a non-negative integer. This is consistent with other shape flags but differs from `take`, which uses `{ max, default? }` syntax.
+
+### `guard.input()` defaults to allowing null for nullable fields
+
+`guard.input()` defaults `allowNull` to `true`, matching the behavior of `.guard({ data: ... })` and Prisma's own nullable field handling. Pass `allowNull: false` to reject null values for nullable fields.
+
+### `Decimal` fields accept JavaScript numbers
+
+The `Decimal` base type accepts JavaScript `number`, decimal string, and Decimal-like objects. Accepting `number` is convenient but carries a precision risk: by the time the validator sees the value, floating-point precision may already be lost. For example, `0.1 + 0.2` arrives as `0.30000000000000004`. For money or high-precision values, pass decimal strings (e.g. `"0.30"`) or Prisma `Decimal` objects instead of JavaScript numbers.
+
+### `skipDuplicates` is supported for batch create methods
+
+`createMany` and `createManyAndReturn` accept `skipDuplicates: boolean` in the request body. This is passed through to Prisma without shape-level configuration. It is not available on `create`.
+
+### Guarded data shapes do not permit relation fields
+
+Relation fields in `data` shapes are rejected with `ShapeError`. Nested writes (e.g. `{ author: { connect: { id: '...' } } }`) are only possible through raw (unguarded) Prisma calls. The guard layer does not intercept or validate nested writes — it prevents them entirely in guarded mutations.
+
+### Conflicting forced where values are rejected
+
+If the same field and operator appear as forced values in different parts of a where shape (e.g. at the top level and inside an `AND` combinator) with different values, the shape is rejected with `ShapeError` at construction time. Identical duplicate forced values are deduplicated silently. This prevents ambiguous security configurations from silently degrading.
 
 ---
 
@@ -1135,9 +1349,9 @@ Libraries like **prisma-sql** make this possible for advanced architectures.
 `.guard(shape).method(body)` may throw:
 
 * `ZodError` — Zod validation failures on data or query args (unless `wrapZodErrors` is enabled)
-* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, incomplete create data shapes, invalid inline refine functions, or dynamic shape functions returning invalid values
-* `CallerError` — missing, unknown, or ambiguous caller in named shapes
-* `PolicyError` — denied scope, missing tenant context, or rejected operations on scoped models (e.g. upsert, findUnique in reject mode)
+* `ShapeError` — invalid shape config, unknown shape config keys, wrong method for shape, body format issues, unexpected body keys, incomplete create data shapes, invalid inline refine functions, dynamic shape functions returning invalid values, or conflicting forced where values
+* `CallerError` — missing, unknown, or ambiguous caller in named shapes, or `caller` found in request body
+* `PolicyError` — denied scope, missing tenant context, invalid context function return value, or rejected operations on scoped models (e.g. upsert, findUnique in reject mode)
 
 All guard errors include `status` and `code` properties for HTTP response mapping:
 
@@ -1178,7 +1392,8 @@ It reads the Prisma DMMF and emits:
 * `TYPE_MAP` — field metadata per model
 * `ENUM_MAP` — enum values
 * `SCOPE_MAP` — foreign key → scope root mappings
-* `ZOD_CHAINS` — `@zod` directive chains (validated by executing the full chain against the field's Zod base type at generation time)
+* `ZOD_CHAINS` — `@zod` directive chains (validated for syntax, method allowlist, argument arity, and basic type compatibility (method existence and type advancement for wrapper-changing methods like .nullable(), .optional(), .default()). Argument type mismatches for non-type-changing methods (e.g. .min('x') on a number field) are not caught at generation time and will fail at runtime when the schema is built.)
+* `ZOD_DEFAULTS` — per-model list of fields that have `@zod .default(...)`, used by the create completeness check
 * `GUARD_CONFIG` — generator config values
 * `UNIQUE_MAP` — unique constraint metadata per model
 * `client.ts` — pre-wired guard instance with typed model extensions
@@ -1187,10 +1402,14 @@ It reads the Prisma DMMF and emits:
 
 At runtime, `guard.extension()` creates a Prisma extension that provides:
 
-* `.guard(shape)` on every model delegate — validates input, enforces query shapes, returns typed Prisma methods
+* `.guard(shape, caller?)` on every model delegate — validates input, enforces query shapes, returns typed Prisma methods
 * `$allOperations` query hook — injects tenant scope into every top-level database operation
 
 The `.guard()` call validates against the shape, merges forced values, and delegates to the underlying Prisma method. The scope layer runs transparently underneath.
+
+Caller routing is resolved before method execution: the explicit `caller` argument takes priority, then `contextFn().caller`, then absent (which is fine for single shapes but throws `CallerError` for named shape maps).
+
+The context function is validated on every code path that consumes it — scope injection, caller resolution, and dynamic shape evaluation all enforce the plain-object contract and throw `PolicyError` for invalid returns.
 
 ---
 
@@ -1215,9 +1434,11 @@ The runtime does lightweight argument rewriting and Zod validation.
 
 In most real applications, overhead should be negligible relative to database round-trip time.
 
-Static shapes (both single and named) are cached per guard instance and method. In a named shape map, each static entry is cached independently — a map with 9 static entries and 1 context-dependent entry will cache the 9 static entries. Context-dependent shapes (functions) resolve the function on each call because they depend on runtime context and are never cached.
+**`guard.query()` caching:** Static shapes passed to `guard.query()` are cached for the lifetime of the returned `QuerySchema` object. In a named shape map, each static entry is cached independently — a map with 9 static entries and 1 context-dependent entry will cache the 9 static entries. Context-dependent shapes (functions) resolve the function on each call because they depend on runtime context and are never cached.
 
-Data schemas containing inline refine functions are also not cached, since the function could close over runtime context values. Data shapes using only `true` and literal values are cached normally. Projection schemas (select/include on mutations) are cached independently for static shapes.
+**`.guard()` caching:** The `.guard(shape).method(body)` chain creates per-invocation caches. In typical usage, the cache is created, used for one method call, and discarded. If you store the result of `.guard(shape)` and call multiple methods on it, the cache is shared across those calls. For hot paths where the same static shape is used repeatedly, prefer `guard.query()` for persistent caching.
+
+Data schemas containing inline refine functions are also not cached, since the function could close over runtime context values. Data shapes using only `true` and literal values are cached normally within their invocation scope. Projection schemas (select/include on mutations) are cached independently for static shapes within their invocation scope.
 
 ---
 
@@ -1233,6 +1454,7 @@ Data schemas containing inline refine functions are also not cached, since the f
 | unsafe scoped `findUnique`             | reject recommended                                    |
 | invalid `@zod` directive               | error by default                                      |
 | missing `caller` in named shapes       | error always                                          |
+| `caller` in request body               | error always                                          |
 | `data` in read shape                   | error always                                          |
 | missing `data` in write shape          | error always                                          |
 | bulk mutation without `where` shape    | error always                                          |
@@ -1243,6 +1465,8 @@ Data schemas containing inline refine functions are also not cached, since the f
 | cursor not covering unique constraint  | error always                                          |
 | caller key collides with shape config  | error always                                          |
 | empty operator objects in where        | error always                                          |
+| empty relation filter (no forced)      | error always                                          |
+| empty relation operator container      | error always                                          |
 | `pick` and `omit` both specified       | error always                                          |
 | scope relation in mutation data        | controlled by `onScopeRelationWrite` (default: error) |
 | incomplete create data shape           | error always                                          |
@@ -1252,6 +1476,10 @@ Data schemas containing inline refine functions are also not cached, since the f
 | dynamic shape returns non-object       | error always (ShapeError)                             |
 | refine callback returns non-Zod schema | error always (ShapeError)                             |
 | `findUnique` shape without `where`     | error always (ShapeError)                             |
+| invalid relation operator for type     | error always (ShapeError)                             |
+| context function returns non-object    | error always (PolicyError)                            |
+| conflicting forced where values        | error always (ShapeError)                             |
+| invalid context function return        | error always (PolicyError)                            |
 
 ---
 
@@ -1311,6 +1539,7 @@ Node 22
 4. Avoid automatic relation traversal
 5. Keep scope rules explicit and schema-driven
 6. One chain — shape defines the boundary, method executes
+7. Method bodies stay Prisma-compatible — routing and context live in `.guard()`
 
 ---
 
@@ -1332,6 +1561,10 @@ Node 22
 | Mutation return projection                 | yes            | manual      |
 | Inline field refine in data shapes         | yes            | n/a         |
 | ZodError wrapping                          | opt-in         | n/a         |
+| Logical combinators in where               | yes            | manual      |
+| Relation filters in where                  | yes            | manual      |
+| Empty relation filter rejection            | yes            | n/a         |
+| Forced where conflict detection            | yes            | n/a         |
 
 ---
 
@@ -1341,12 +1574,11 @@ Possible future improvements:
 
 * optional nested-write enforcement helpers
 * richer relation-level policies
-* logical combinator support in where shapes (`AND`/`OR`/`NOT`)
-* relation-level where filters
-* more query method coverage
+* more query method coverage (upsert)
 * adapter integrations for SQL-backed runtimes
 * model-specific generated types for stronger compile-time shape validation
 * structured JSON field validation via schema annotations
+* optional strict Decimal mode (string-only, no JavaScript number)
 
 ---
 

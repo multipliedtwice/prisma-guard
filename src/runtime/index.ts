@@ -15,6 +15,7 @@ export type {
   TypeMap,
   EnumMap,
   ZodChains,
+  ZodDefaults,
   UniqueConstraint,
   UniqueMap,
   MissingScopeContextMode,

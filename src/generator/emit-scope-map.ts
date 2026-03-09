@@ -44,7 +44,7 @@ export function emitScopeMap(
         }
 
         if (onAmbiguousScope === 'warn') {
-          console.warn(`prisma-guard: ${msg} Excluding model from scope map.`)
+          console.warn(`prisma-guard: ${msg} Excluding relation "${field.name}" to scope root "${field.type}" from scope map for model "${model.name}".`)
         }
 
         continue
@@ -80,7 +80,7 @@ export function emitScopeMap(
         }
 
         if (onAmbiguousScope === 'warn') {
-          console.warn(`prisma-guard: ${msg} Excluding model from scope map.`)
+          console.warn(`prisma-guard: ${msg} Excluding relations to scope root "${root}" from scope map for model "${model.name}".`)
         }
 
         continue

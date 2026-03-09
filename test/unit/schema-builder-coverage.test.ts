@@ -45,7 +45,7 @@ describe('schema-builder coverage: buildModelSchema _count', () => {
       companyId: 'c1',
       _count: { company: 0, posts: 5 },
     })
-    expect(result._count).toEqual({ company: 0, posts: 5 })
+    expect(result._count).toEqual({ posts: 5 })
   })
 
   it('_count with specific relations', () => {

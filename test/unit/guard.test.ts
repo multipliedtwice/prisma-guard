@@ -151,10 +151,10 @@ describe("createGuard facade", () => {
     const schema = guard.query("User", "findMany", {
       "/admin": { where: { email: { contains: true } } },
     });
-    const result = schema.parse({
-      caller: "/admin",
-      where: { email: { contains: "x" } },
-    });
+    const result = schema.parse(
+      { where: { email: { contains: "x" } } },
+      { caller: "/admin" },
+    );
     expect(result.where).toEqual({ email: { contains: "x" } });
   });
 

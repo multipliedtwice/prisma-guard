@@ -321,10 +321,19 @@ describe("buildInputSchema", () => {
       expect(parse({ name: null })).toEqual({ name: null });
     });
 
+    it("allows null for optional fields by default", () => {
+      const { parse } = builder().buildInputSchema("User", {
+        mode: "create",
+        pick: ["name"],
+      });
+      expect(parse({ name: null })).toEqual({ name: null });
+    });
+
     it("rejects null for optional fields when allowNull is false", () => {
       const { parse } = builder().buildInputSchema("User", {
         mode: "create",
         pick: ["name"],
+        allowNull: false,
       });
       expect(() => parse({ name: null })).toThrow();
     });

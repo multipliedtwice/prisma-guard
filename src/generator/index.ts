@@ -27,6 +27,20 @@ function validateConfigEnum<T extends string>(
   return value as T
 }
 
+function emitZodDefaults(defaults: Record<string, string[]>): string {
+  const entries = Object.entries(defaults)
+  if (entries.length === 0) {
+    return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {}\n`
+  }
+  const mapEntries = entries
+    .map(([model, fields]) => {
+      const fieldsStr = fields.map(f => JSON.stringify(f)).join(', ')
+      return `  ${JSON.stringify(model)}: [${fieldsStr}],`
+    })
+    .join('\n')
+  return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {\n${mapEntries}\n}\n`
+}
+
 generatorHandler({
   onManifest() {
     return {
@@ -64,8 +78,10 @@ generatorHandler({
     const typeMapSource = emitTypeMap(dmmf)
     parts.push(typeMapSource)
 
-    const { source: zodChainsSource } = emitZodChains(dmmf, onInvalidZod)
+    const { source: zodChainsSource, defaults } = emitZodChains(dmmf, onInvalidZod)
     parts.push(zodChainsSource)
+
+    parts.push(emitZodDefaults(defaults))
 
     mkdirSync(output, { recursive: true })
     writeFileSync(join(output, 'index.ts'), parts.join('\n'), 'utf-8')

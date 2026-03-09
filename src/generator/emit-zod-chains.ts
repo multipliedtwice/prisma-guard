@@ -51,7 +51,6 @@ function checkChainCompatibility(
           current = (current as any)[method]()
         }
       } catch {
-        // method exists but advancement failed; continue with current base
       }
     }
   }
@@ -68,7 +67,7 @@ function findZodInDoc(documentation: string): string[] {
 export function emitZodChains(
   dmmf: DMMF.Document,
   onInvalidZod: 'error' | 'warn',
-): { source: string; hasChains: boolean } {
+): { source: string; hasChains: boolean; defaults: Record<string, string[]> } {
   const enumNames = new Set(dmmf.datamodel.enums.map(e => e.name))
   const enumValues: Record<string, readonly string[]> = {}
   for (const e of dmmf.datamodel.enums) {
@@ -76,6 +75,7 @@ export function emitZodChains(
   }
 
   const modelChains: Record<string, Record<string, string>> = {}
+  const defaults: Record<string, string[]> = {}
 
   for (const model of dmmf.datamodel.models) {
     for (const field of model.fields) {
@@ -135,13 +135,18 @@ export function emitZodChains(
 
       if (!modelChains[model.name]) modelChains[model.name] = {}
       modelChains[model.name][field.name] = chainStr
+
+      if (result.methods.includes('default')) {
+        if (!defaults[model.name]) defaults[model.name] = []
+        defaults[model.name].push(field.name)
+      }
     }
   }
 
   const hasChains = Object.keys(modelChains).length > 0
 
   if (!hasChains) {
-    return { source: 'export const ZOD_CHAINS = {}\n', hasChains: false }
+    return { source: 'export const ZOD_CHAINS = {}\n', hasChains: false, defaults }
   }
 
   const entries = Object.entries(modelChains)
@@ -156,5 +161,6 @@ export function emitZodChains(
   return {
     source: `export const ZOD_CHAINS = {\n${entries}\n}\n`,
     hasChains: true,
+    defaults,
   }
 }

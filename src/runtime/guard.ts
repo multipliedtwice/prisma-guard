@@ -3,11 +3,12 @@ import type {
   TypeMap, GuardConfig, InputOpts, ModelOpts,
   QueryMethod, ShapeOrFn, QuerySchema, GuardLogger,
 } from '../shared/types.js'
-import { ShapeError, formatZodError } from '../shared/errors.js'
+import { ShapeError, PolicyError, formatZodError } from '../shared/errors.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import { createQueryBuilder } from './query-builder.js'
 import { createScopeExtension } from './scope-extension.js'
 import { createModelGuardExtension } from './model-guard.js'
+import { validateContext } from './policy.js'
 
 export function createGuard<
   TModels extends TypeMap = TypeMap,
@@ -88,7 +89,7 @@ export function createGuard<
       }
 
       const scopeCtxFn = () => {
-        const ctx = contextFn()
+        const ctx = validateContext(contextFn())
         const scopeCtx: Partial<Record<TRoots, string | number | bigint>> = {}
         for (const key of Object.keys(ctx)) {
           if (!scopeRoots.has(key)) continue
@@ -115,6 +116,7 @@ export function createGuard<
         typeMap: config.typeMap,
         enumMap: config.enumMap,
         zodChains: config.zodChains,
+        zodDefaults: config.zodDefaults ?? {},
         uniqueMap: config.uniqueMap ?? {},
         scopeMap: config.scopeMap,
         contextFn,

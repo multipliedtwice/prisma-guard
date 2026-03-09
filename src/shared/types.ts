@@ -61,7 +61,7 @@ export type MutationMethod =
   | 'deleteMany'
 
 export interface ShapeConfig {
-  where?: Record<string, Record<string, true | unknown>>
+  where?: Record<string, unknown>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, true>
@@ -79,7 +79,7 @@ export interface ShapeConfig {
 }
 
 export interface NestedIncludeArgs {
-  where?: Record<string, Record<string, true | unknown>>
+  where?: Record<string, unknown>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, true>
@@ -90,7 +90,7 @@ export interface NestedIncludeArgs {
 
 export interface NestedSelectArgs {
   select?: Record<string, true | NestedSelectArgs>
-  where?: Record<string, Record<string, true | unknown>>
+  where?: Record<string, unknown>
   orderBy?: Record<string, true>
   cursor?: Record<string, true>
   take?: { max: number; default?: number }
@@ -111,6 +111,7 @@ export type ScopeMap = Record<string, readonly ScopeEntry[]>
 export type TypeMap = Record<string, Record<string, FieldMeta>>
 export type EnumMap = Record<string, readonly string[]>
 export type ZodChains = Record<string, Record<string, (base: any) => z.ZodTypeAny>>
+export type ZodDefaults = Record<string, readonly string[]>
 export type UniqueConstraint = readonly string[]
 export type UniqueMap = Record<string, readonly UniqueConstraint[]>
 
@@ -131,12 +132,13 @@ export interface GuardConfig {
   zodChains: ZodChains
   guardConfig: GuardGeneratedConfig
   uniqueMap?: UniqueMap
+  zodDefaults?: ZodDefaults
   logger?: GuardLogger
   wrapZodErrors?: boolean
 }
 
 export interface QuerySchema<TCtx = unknown> {
-  parse(body: unknown, opts?: { ctx?: TCtx }): Record<string, unknown>
+  parse(body: unknown, opts?: { ctx?: TCtx; caller?: string }): Record<string, unknown>
   schemas: Partial<Record<string, z.ZodObject<any>>>
 }
 

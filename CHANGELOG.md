@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.2.0...v1.2.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* security and correctness improvements ([1ba4bfc](https://github.com/multipliedtwice/prisma-guard/commit/1ba4bfc56cf8b6ecccc8aa396e570d84f4d0ebe1))
+
 # [1.2.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.1.0...v1.2.0) (2026-03-09)
 
 

@@ -676,9 +676,55 @@ describe("e2e: runtime scope extension", () => {
   });
 
   describe("upsert", () => {
-    it("throws PolicyError for upsert on scoped model", () => {
+    it("scopes upsert: merges where, injects create FK, strips update FK", async () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "t1" }));
+      const { calls, query } = makeQueryRecorder();
+
+      await ext.query.$allOperations({
+        model: "Project",
+        operation: "upsert",
+        args: {
+          where: { id: "p1" },
+          create: { title: "new", tenantId: "attempt-override" },
+          update: { title: "updated", tenantId: "attempt-change" },
+        },
+        query,
+      });
+
+      expect(calls.length).toBe(1);
+      expect(calls[0].where).toEqual({
+        id: "p1",
+        AND: [{ tenantId: "t1" }],
+      });
+      expect(calls[0].create).toEqual({ title: "new", tenantId: "t1" });
+      expect(calls[0].update).toEqual({ title: "updated" });
+      expect(calls[0].update.tenantId).toBeUndefined();
+    });
+
+    it("injects FK into upsert create when not provided", async () => {
+      const guard = makeGuard();
+      const ext = guard.extension(() => ({ Tenant: "t1" }));
+      const { calls, query } = makeQueryRecorder();
+
+      await ext.query.$allOperations({
+        model: "Project",
+        operation: "upsert",
+        args: {
+          where: { id: "p1" },
+          create: { title: "new" },
+          update: { title: "updated" },
+        },
+        query,
+      });
+
+      expect(calls[0].create).toEqual({ title: "new", tenantId: "t1" });
+      expect(calls[0].update).toEqual({ title: "updated" });
+    });
+
+    it("throws PolicyError for upsert when scope context is missing", () => {
+      const guard = makeGuard({ onMissingScopeContext: "error" });
+      const ext = guard.extension(() => ({}));
       const { query } = makeQueryRecorder();
 
       expect(() =>

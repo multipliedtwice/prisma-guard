@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createQueryBuilder } from "../../src/runtime/query-builder.js";
 import { ShapeError, CallerError } from "../../src/shared/errors.js";
 import type { TypeMap, EnumMap } from "../../src/shared/types.js";
+import { createScalarBase } from "../../src/shared/scalar-base.js";
 
 const TYPE_MAP: TypeMap = {
   User: {
@@ -36,7 +37,9 @@ const TYPE_MAP: TypeMap = {
 
 const ENUM_MAP: EnumMap = { Role: ["USER", "ADMIN"] };
 
-function qb() { return createQueryBuilder(TYPE_MAP, ENUM_MAP); }
+const scalarBase = createScalarBase(false)
+
+function qb() { return createQueryBuilder(TYPE_MAP, ENUM_MAP, {}, scalarBase); }
 
 describe("single static shape", () => {
   it("parses valid body", () => {

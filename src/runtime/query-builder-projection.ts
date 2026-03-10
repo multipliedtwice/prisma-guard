@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { TypeMap, EnumMap, UniqueMap, NestedIncludeArgs, NestedSelectArgs } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
 import type { WhereForced, ForcedTree } from './query-builder-forced.js'
 import { hasWhereForced } from './query-builder-forced.js'
 import type { WhereBuiltResult } from './query-builder-where.js'
@@ -13,6 +13,7 @@ const KNOWN_NESTED_SELECT_KEYS = new Set([
   'select', 'where', 'orderBy', 'cursor', 'take', 'skip',
 ])
 const KNOWN_COUNT_SELECT_ENTRY_KEYS = new Set(['where'])
+const MAX_PROJECTION_DEPTH = 10
 
 export interface BuiltIncludeResult {
   schema: z.ZodTypeAny
@@ -103,6 +104,11 @@ export function createProjectionBuilder(
       if (fieldConfig === true) {
         countSelectFields[fieldName] = z.literal(true).optional()
       } else if (isPlainObject(fieldConfig)) {
+        if (Object.keys(fieldConfig).length === 0) {
+          throw new ShapeError(
+            `Empty config for _count.select.${fieldName} on model "${model}". Use true or { where: { ... } }.`,
+          )
+        }
         validateNestedKeys(
           Object.keys(fieldConfig),
           KNOWN_COUNT_SELECT_ENTRY_KEYS,
@@ -132,7 +138,12 @@ export function createProjectionBuilder(
       }
     }
 
+    const countSelectKeys = Object.keys(countSelectFields)
     const selectSchema = z.object(countSelectFields).strict()
+      .refine(
+        (v) => countSelectKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
+        { message: '_count.select must specify at least one field' },
+      )
     return {
       schema: z.object({ select: selectSchema }).strict().optional(),
       forcedCountWhere,
@@ -142,7 +153,21 @@ export function createProjectionBuilder(
   function buildIncludeSchema(
     model: string,
     includeConfig: Record<string, true | NestedIncludeArgs>,
+    depth?: number,
   ): BuiltIncludeResult {
+    const currentDepth = depth ?? 0
+    if (currentDepth > MAX_PROJECTION_DEPTH) {
+      throw new ShapeError(
+        `Include schema for model "${model}" exceeds maximum nesting depth (${MAX_PROJECTION_DEPTH}). Check for circular relation references in the shape.`,
+      )
+    }
+
+    if (Object.keys(includeConfig).length === 0) {
+      throw new ShapeError(
+        `Empty include config on model "${model}". Define at least one relation.`,
+      )
+    }
+
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
@@ -195,16 +220,22 @@ export function createProjectionBuilder(
           if (hasWhereForced(forced)) relForced.where = forced
         }
         if (config.include) {
-          const nested = buildIncludeSchema(fieldMeta.type, config.include)
+          const nested = buildIncludeSchema(fieldMeta.type, config.include, currentDepth + 1)
           nestedSchemas['include'] = nested.schema
           if (Object.keys(nested.forcedTree).length > 0) relForced.include = nested.forcedTree
-          if (Object.keys(nested.forcedCountWhere).length > 0) relForced._countWhere = nested.forcedCountWhere
+          if (Object.keys(nested.forcedCountWhere).length > 0) {
+            relForced._countWhere = nested.forcedCountWhere
+            relForced._countWherePlacement = 'include'
+          }
         }
         if (config.select) {
-          const nested = buildSelectSchema(fieldMeta.type, config.select)
+          const nested = buildSelectSchema(fieldMeta.type, config.select, currentDepth + 1)
           nestedSchemas['select'] = nested.schema
           if (Object.keys(nested.forcedTree).length > 0) relForced.select = nested.forcedTree
-          if (Object.keys(nested.forcedCountWhere).length > 0) relForced._countWhere = nested.forcedCountWhere
+          if (Object.keys(nested.forcedCountWhere).length > 0) {
+            relForced._countWhere = nested.forcedCountWhere
+            relForced._countWherePlacement = 'select'
+          }
         }
         if (config.orderBy) {
           nestedSchemas['orderBy'] = deps.buildOrderBySchema(fieldMeta.type, config.orderBy)
@@ -226,8 +257,17 @@ export function createProjectionBuilder(
       }
     }
 
+    const includeFieldKeys = Object.keys(fieldSchemas)
+    const baseSchema = z.object(fieldSchemas).strict()
+    const schema = includeFieldKeys.length > 0
+      ? baseSchema.refine(
+          (v) => includeFieldKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
+          { message: 'include must specify at least one field' },
+        ).optional()
+      : baseSchema.optional()
+
     return {
-      schema: z.object(fieldSchemas).strict().optional(),
+      schema,
       forcedTree,
       forcedCountWhere: topLevelForcedCountWhere,
     }
@@ -236,7 +276,21 @@ export function createProjectionBuilder(
   function buildSelectSchema(
     model: string,
     selectConfig: Record<string, true | NestedSelectArgs>,
+    depth?: number,
   ): BuiltSelectResult {
+    const currentDepth = depth ?? 0
+    if (currentDepth > MAX_PROJECTION_DEPTH) {
+      throw new ShapeError(
+        `Select schema for model "${model}" exceeds maximum nesting depth (${MAX_PROJECTION_DEPTH}). Check for circular relation references in the shape.`,
+      )
+    }
+
+    if (Object.keys(selectConfig).length === 0) {
+      throw new ShapeError(
+        `Empty select config on model "${model}". Define at least one field.`,
+      )
+    }
+
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
@@ -280,10 +334,13 @@ export function createProjectionBuilder(
         const relForced: ForcedTree = {}
 
         if (config.select) {
-          const nested = buildSelectSchema(fieldMeta.type, config.select)
+          const nested = buildSelectSchema(fieldMeta.type, config.select, currentDepth + 1)
           nestedSchemas['select'] = nested.schema
           if (Object.keys(nested.forcedTree).length > 0) relForced.select = nested.forcedTree
-          if (Object.keys(nested.forcedCountWhere).length > 0) relForced._countWhere = nested.forcedCountWhere
+          if (Object.keys(nested.forcedCountWhere).length > 0) {
+            relForced._countWhere = nested.forcedCountWhere
+            relForced._countWherePlacement = 'select'
+          }
         }
         if (config.where) {
           const { schema: whereSchema, forced } = deps.buildWhereSchema(
@@ -313,8 +370,17 @@ export function createProjectionBuilder(
       }
     }
 
+    const selectFieldKeys = Object.keys(fieldSchemas)
+    const baseSchema = z.object(fieldSchemas).strict()
+    const schema = selectFieldKeys.length > 0
+      ? baseSchema.refine(
+          (v) => selectFieldKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
+          { message: 'select must specify at least one field' },
+        ).optional()
+      : baseSchema.optional()
+
     return {
-      schema: z.object(fieldSchemas).strict().optional(),
+      schema,
       forcedTree,
       forcedCountWhere: topLevelForcedCountWhere,
     }

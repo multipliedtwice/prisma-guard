@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import type {
   TypeMap, EnumMap, ZodChains, ZodDefaults, UniqueMap, ScopeMap, GuardShape,
-  GuardInput, QueryMethod, GuardedModel,
+  GuardInput, QueryMethod, GuardedModel, GuardGeneratedConfig,
   NestedIncludeArgs, NestedSelectArgs,
 } from '../shared/types.js'
 import { ShapeError, formatZodError } from '../shared/errors.js'
-import { GUARD_SHAPE_KEYS, toDelegateKey } from '../shared/constants.js'
+import { GUARD_SHAPE_KEYS, toDelegateKey, isForcedValue } from '../shared/constants.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import { createQueryBuilder } from './query-builder.js'
 import {
@@ -14,7 +14,6 @@ import {
   mergeWhereForced, mergeUniqueWhereForced, hasWhereForced,
 } from './query-builder-forced.js'
 import type { BuiltShape, ForcedTree, WhereForced } from './query-builder-forced.js'
-import type { BuiltIncludeResult, BuiltSelectResult } from './query-builder-projection.js'
 import type { WhereBuiltResult } from './query-builder-where.js'
 import {
   buildDataSchema, validateCreateCompleteness, validateAndMergeData,
@@ -23,15 +22,19 @@ import {
   ALLOWED_BODY_KEYS_CREATE_MANY, ALLOWED_BODY_KEYS_CREATE_MANY_PROJECTION,
   ALLOWED_BODY_KEYS_UPDATE, ALLOWED_BODY_KEYS_UPDATE_PROJECTION,
   ALLOWED_BODY_KEYS_DELETE, ALLOWED_BODY_KEYS_DELETE_PROJECTION,
+  ALLOWED_BODY_KEYS_UPSERT,
   VALID_SHAPE_KEYS_CREATE, VALID_SHAPE_KEYS_CREATE_PROJECTION,
   VALID_SHAPE_KEYS_UPDATE, VALID_SHAPE_KEYS_UPDATE_PROJECTION,
   VALID_SHAPE_KEYS_DELETE, VALID_SHAPE_KEYS_DELETE_PROJECTION,
+  VALID_SHAPE_KEYS_UPSERT,
 } from './model-guard-data.js'
 import type { BuiltDataSchema } from './model-guard-data.js'
 import { resolveShape } from './model-guard-resolve.js'
 import { validateContext } from './policy.js'
+import { isPlainObject } from '../shared/utils.js'
+import { createScalarBase } from '../shared/scalar-base.js'
 
-const UNIQUE_MUTATION_METHODS = new Set(['update', 'delete'])
+const UNIQUE_MUTATION_METHODS = new Set(['update', 'delete', 'upsert'])
 const UNIQUE_READ_METHODS = new Set<string>(['findUnique', 'findUniqueOrThrow'])
 
 const BULK_MUTATION_METHODS = new Set([
@@ -39,7 +42,7 @@ const BULK_MUTATION_METHODS = new Set([
 ])
 
 const PROJECTION_MUTATION_METHODS = new Set([
-  'create', 'update', 'delete',
+  'create', 'update', 'upsert', 'delete',
   'createManyAndReturn', 'updateManyAndReturn',
 ])
 
@@ -55,6 +58,140 @@ interface BuiltProjection {
   forcedSelectCountWhere: Record<string, WhereForced>
 }
 
+function buildDefaultSelectInput(
+  config: Record<string, true | NestedSelectArgs>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(config)) {
+    if (key === '_count') {
+      result[key] = buildDefaultCountInput(value as true | Record<string, unknown>)
+      continue
+    }
+    if (value === true) {
+      result[key] = true
+    } else {
+      const nested: Record<string, unknown> = {}
+      if (value.select) nested.select = buildDefaultSelectInput(value.select)
+      result[key] = Object.keys(nested).length > 0 ? nested : true
+    }
+  }
+  return result
+}
+
+function buildDefaultIncludeInput(
+  config: Record<string, true | NestedIncludeArgs>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(config)) {
+    if (key === '_count') {
+      result[key] = buildDefaultCountInput(value as true | Record<string, unknown>)
+      continue
+    }
+    if (value === true) {
+      result[key] = true
+    } else {
+      const nested: Record<string, unknown> = {}
+      if (value.include) nested.include = buildDefaultIncludeInput(value.include)
+      if (value.select) nested.select = buildDefaultSelectInput(value.select)
+      result[key] = Object.keys(nested).length > 0 ? nested : true
+    }
+  }
+  return result
+}
+
+function buildDefaultCountInput(
+  config: true | Record<string, unknown>,
+): unknown {
+  if (config === true) return true
+  if (!isPlainObject(config) || !config.select || !isPlainObject(config.select)) return true
+  const selectObj = config.select as Record<string, unknown>
+  const result: Record<string, unknown> = {}
+  for (const key of Object.keys(selectObj)) {
+    result[key] = true
+  }
+  return { select: result }
+}
+
+function buildDefaultProjectionBody(
+  shape: GuardShape,
+): Record<string, unknown> {
+  if (shape.select) {
+    return { select: buildDefaultSelectInput(shape.select) }
+  }
+  if (shape.include) {
+    return { include: buildDefaultIncludeInput(shape.include) }
+  }
+  return {}
+}
+
+function hasClientControlledValues(obj: Record<string, unknown>): boolean {
+  for (const value of Object.values(obj)) {
+    if (isForcedValue(value)) continue
+    if (value === true) return true
+    if (isPlainObject(value) && hasClientControlledValues(value)) return true
+  }
+  return false
+}
+
+function checkIncludeForClientArgs(
+  config: Record<string, true | NestedIncludeArgs>,
+): boolean {
+  for (const [key, value] of Object.entries(config)) {
+    if (key === '_count') {
+      if (value !== true && isPlainObject(value) && isPlainObject((value as Record<string, unknown>).select)) {
+        const selectObj = (value as Record<string, unknown>).select as Record<string, unknown>
+        for (const entryVal of Object.values(selectObj)) {
+          if (isPlainObject(entryVal) && (entryVal as Record<string, unknown>).where) {
+            const w = (entryVal as Record<string, unknown>).where
+            if (isPlainObject(w) && hasClientControlledValues(w)) return true
+          }
+        }
+      }
+      continue
+    }
+    if (value === true) continue
+    if (value.orderBy || value.cursor || value.take || value.skip) return true
+    if (value.where && isPlainObject(value.where) && hasClientControlledValues(value.where as Record<string, unknown>)) return true
+    if (value.include && checkIncludeForClientArgs(value.include)) return true
+    if (value.select && checkSelectForClientArgs(value.select)) return true
+  }
+  return false
+}
+
+function checkSelectForClientArgs(
+  config: Record<string, true | NestedSelectArgs>,
+): boolean {
+  for (const [key, value] of Object.entries(config)) {
+    if (key === '_count') {
+      if (value !== true && isPlainObject(value) && isPlainObject((value as Record<string, unknown>).select)) {
+        const selectObj = (value as Record<string, unknown>).select as Record<string, unknown>
+        for (const entryVal of Object.values(selectObj)) {
+          if (isPlainObject(entryVal) && (entryVal as Record<string, unknown>).where) {
+            const w = (entryVal as Record<string, unknown>).where
+            if (isPlainObject(w) && hasClientControlledValues(w)) return true
+          }
+        }
+      }
+      continue
+    }
+    if (value === true) continue
+    if (value.orderBy || value.cursor || value.take || value.skip) return true
+    if (value.where && isPlainObject(value.where) && hasClientControlledValues(value.where as Record<string, unknown>)) return true
+    if (value.select && checkSelectForClientArgs(value.select)) return true
+  }
+  return false
+}
+
+function hasNestedClientControlledArgs(shape: GuardShape): boolean {
+  if (shape.include) {
+    if (checkIncludeForClientArgs(shape.include)) return true
+  }
+  if (shape.select) {
+    if (checkSelectForClientArgs(shape.select)) return true
+  }
+  return false
+}
+
 export function createModelGuardExtension(config: {
   typeMap: TypeMap
   enumMap: EnumMap
@@ -62,13 +199,16 @@ export function createModelGuardExtension(config: {
   zodDefaults: ZodDefaults
   uniqueMap: UniqueMap
   scopeMap: ScopeMap
+  guardConfig: GuardGeneratedConfig
   contextFn: () => Record<string, unknown>
   wrapZodErrors?: boolean
 }) {
-  const { typeMap, enumMap, zodChains, zodDefaults, uniqueMap, scopeMap, contextFn } = config
+  const { typeMap, enumMap, zodChains, zodDefaults, uniqueMap, scopeMap, guardConfig, contextFn } = config
   const wrapZodErrors = config.wrapZodErrors ?? false
-  const schemaBuilder = createSchemaBuilder(typeMap, zodChains, enumMap)
-  const queryBuilder = createQueryBuilder(typeMap, enumMap, uniqueMap)
+  const enforceProjection = guardConfig.enforceProjection ?? false
+  const scalarBase = createScalarBase(guardConfig.strictDecimal ?? false)
+  const schemaBuilder = createSchemaBuilder(typeMap, zodChains, enumMap, scalarBase, zodDefaults)
+  const queryBuilder = createQueryBuilder(typeMap, enumMap, uniqueMap, scalarBase)
 
   const modelScopeFks = new Map<string, Set<string>>()
   for (const [model, entries] of Object.entries(scopeMap)) {
@@ -140,11 +280,11 @@ export function createModelGuardExtension(config: {
         const cacheKey = `${mode}\0${matchedKey}`
         const cached = dataSchemaCache.get(cacheKey)
         if (cached) return cached
-        const built = buildDataSchema(modelName, dataConfig, mode, typeMap, schemaBuilder)
+        const built = buildDataSchema(modelName, dataConfig, mode, typeMap, schemaBuilder, zodDefaults)
         dataSchemaCache.set(cacheKey, built)
         return built
       }
-      return buildDataSchema(modelName, dataConfig, mode, typeMap, schemaBuilder)
+      return buildDataSchema(modelName, dataConfig, mode, typeMap, schemaBuilder, zodDefaults)
     }
 
     function getWhereBuilt(
@@ -236,11 +376,29 @@ export function createModelGuardExtension(config: {
 
       if (!hasShapeProjection) return {}
 
+      if (!hasBodyProjection && !enforceProjection) return {}
+
+      if (!hasBodyProjection && enforceProjection) {
+        if (hasNestedClientControlledArgs(shape)) {
+          throw new ShapeError(
+            `Guard shape defines nested client-controlled projection args (orderBy/take/cursor/skip/where) ` +
+            `but the client did not provide select/include in the ${method} body. ` +
+            `With enforceProjection enabled, either always provide projection in the body ` +
+            `or remove client-controlled nested args from the shape.`,
+          )
+        }
+      }
+
       const projection = getProjection(shape, matchedKey, wasDynamic)
 
-      const projectionBody: Record<string, unknown> = {}
-      if ('select' in parsed) projectionBody.select = parsed.select
-      if ('include' in parsed) projectionBody.include = parsed.include
+      let projectionBody: Record<string, unknown>
+      if (hasBodyProjection) {
+        projectionBody = {}
+        if ('select' in parsed) projectionBody.select = parsed.select
+        if ('include' in parsed) projectionBody.include = parsed.include
+      } else {
+        projectionBody = buildDefaultProjectionBody(shape)
+      }
 
       const validated = projection.zodSchema.parse(projectionBody) as Record<string, unknown>
 
@@ -281,6 +439,12 @@ export function createModelGuardExtension(config: {
 
       if (built.schema) {
         validatedWhere = built.schema.parse(bodyWhere) as Record<string, unknown> | undefined
+      } else if (bodyWhere !== undefined) {
+        if (bodyWhere === null || !isPlainObject(bodyWhere) || Object.keys(bodyWhere).length > 0) {
+          throw new ShapeError(
+            'Guard shape where contains only forced conditions. Client where input is not accepted.',
+          )
+        }
       }
 
       if (hasWhereForced(built.forced)) {
@@ -462,6 +626,81 @@ export function createModelGuardExtension(config: {
       }
     }
 
+    function makeUpsertMethod() {
+      return (body: unknown) => {
+        const caller = resolveCaller()
+        const resolved = resolveShape(input, body, contextFn, caller)
+
+        if (resolved.shape.data) {
+          throw new ShapeError('Guard shape "data" is not valid for upsert. Use "create" and "update" instead.')
+        }
+        if (!resolved.shape.create) {
+          throw new ShapeError('Guard shape requires "create" for upsert')
+        }
+        if (!resolved.shape.update) {
+          throw new ShapeError('Guard shape requires "update" for upsert')
+        }
+        if (!resolved.shape.where) {
+          throw new ShapeError('Guard shape requires "where" for upsert')
+        }
+
+        validateMutationShapeKeys(
+          resolved.shape as unknown as Record<string, unknown>,
+          VALID_SHAPE_KEYS_UPSERT,
+          'upsert',
+        )
+        validateMutationBodyKeys(resolved.body, ALLOWED_BODY_KEYS_UPSERT, 'upsert')
+
+        maybeValidateUniqueWhere(modelName, resolved.shape, 'upsert')
+
+        const fks = modelScopeFks.get(modelName) ?? new Set<string>()
+        validateCreateCompleteness(modelName, resolved.shape.create, typeMap, fks, zodDefaults)
+
+        const createDataSchema = getDataSchema(
+          'create',
+          resolved.shape.create,
+          `upsert:create\0${resolved.matchedKey}`,
+          resolved.wasDynamic,
+        )
+        const createData = validateAndMergeData(resolved.body.create, createDataSchema, 'upsert (create)')
+
+        const updateDataSchema = getDataSchema(
+          'update',
+          resolved.shape.update,
+          `upsert:update\0${resolved.matchedKey}`,
+          resolved.wasDynamic,
+        )
+        const updateData = validateAndMergeData(resolved.body.update, updateDataSchema, 'upsert (update)')
+
+        const where = requireWhere(
+          resolved.shape,
+          resolved.body.where,
+          'upsert',
+          true,
+          resolved.matchedKey,
+          resolved.wasDynamic,
+        )
+        validateResolvedUniqueWhere(modelName, where, 'upsert', uniqueMap)
+
+        const args: Record<string, unknown> = {
+          where,
+          create: createData,
+          update: updateData,
+        }
+
+        const projectionArgs = resolveProjection(
+          resolved.shape,
+          resolved.body,
+          'upsert',
+          resolved.matchedKey,
+          resolved.wasDynamic,
+        )
+        Object.assign(args, projectionArgs)
+
+        return callDelegate('upsert', args)
+      }
+    }
+
     return {
       findMany: makeReadMethod('findMany'),
       findFirst: makeReadMethod('findFirst'),
@@ -477,6 +716,7 @@ export function createModelGuardExtension(config: {
       update: makeUpdateMethod('update'),
       updateMany: makeUpdateMethod('updateMany'),
       updateManyAndReturn: makeUpdateMethod('updateManyAndReturn'),
+      upsert: makeUpsertMethod(),
       delete: makeDeleteMethod('delete'),
       deleteMany: makeDeleteMethod('deleteMany'),
     }

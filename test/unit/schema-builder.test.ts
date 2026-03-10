@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSchemaBuilder } from "../../src/runtime/schema-builder.js";
 import type { TypeMap, EnumMap, ZodChains } from "../../src/shared/types.js";
 import z from "zod";
+import { createScalarBase } from "../../src/shared/scalar-base.js";
 
 const TYPE_MAP: TypeMap = {
   User: {
@@ -185,8 +186,10 @@ const ZOD_CHAINS: ZodChains = {
   },
 };
 
+const scalarBase = createScalarBase(false)
+
 function builder() {
-  return createSchemaBuilder(TYPE_MAP, ZOD_CHAINS, ENUM_MAP);
+  return createSchemaBuilder(TYPE_MAP, ZOD_CHAINS, ENUM_MAP, scalarBase, {});
 }
 
 describe("buildInputSchema", () => {

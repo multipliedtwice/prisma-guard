@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createSchemaBuilder } from '../../src/runtime/schema-builder.js'
 import { ShapeError } from '../../src/shared/errors.js'
 import type { TypeMap, EnumMap, ZodChains, FieldMeta } from '../../src/shared/types.js'
+import { createScalarBase } from '../../src/shared/scalar-base.js'
 
 const TYPE_MAP: TypeMap = {
   User: {
@@ -27,9 +28,10 @@ const TYPE_MAP: TypeMap = {
 }
 
 const ENUM_MAP: EnumMap = {}
+const scalarBase = createScalarBase(false)
 
 function makeSb(zodChains: ZodChains = {}) {
-  return createSchemaBuilder(TYPE_MAP, zodChains, ENUM_MAP)
+  return createSchemaBuilder(TYPE_MAP, zodChains, ENUM_MAP, scalarBase, {})
 }
 
 describe('schema-builder coverage: buildModelSchema _count', () => {
@@ -180,7 +182,7 @@ describe('schema-builder coverage: LRU cache eviction', () => {
       }
     }
     const largeTypeMap: TypeMap = { BigModel: fields }
-    const sb = createSchemaBuilder(largeTypeMap, {}, {})
+    const sb = createSchemaBuilder(largeTypeMap, {}, {}, scalarBase, {})
 
     for (let i = 0; i < 510; i++) {
       const result = sb.buildFieldSchema('BigModel', `f${i}`)
@@ -227,7 +229,7 @@ describe('schema-builder coverage: buildModelSchema related model not found', ()
         ghost: { type: 'Ghost', isList: false, isRequired: true, isId: false, isRelation: true, hasDefault: false, isUpdatedAt: false },
       },
     }
-    const sb = createSchemaBuilder(partialTypeMap, {}, {})
+    const sb = createSchemaBuilder(partialTypeMap, {}, {}, scalarBase, {})
     expect(() => sb.buildModelSchema('Orphan', {
       include: { ghost: {} },
     })).toThrow(ShapeError)

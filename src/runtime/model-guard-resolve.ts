@@ -2,7 +2,7 @@ import type { GuardShape, GuardShapeOrFn, GuardInput } from '../shared/types.js'
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
 import { matchCallerPattern } from '../shared/match-caller.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
 import { validateContext } from './policy.js'
 
 export interface ResolvedShape {
@@ -80,7 +80,9 @@ export function resolveShape(
     }
   }
 
-  const parsed = requireBody(body)
+  const parsed = body === undefined || body === null
+    ? {}
+    : requireBody(body)
 
   if ('caller' in parsed) {
     throw new CallerError(

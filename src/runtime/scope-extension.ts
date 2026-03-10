@@ -213,10 +213,25 @@ export function createScopeExtension<TRoots extends string>(
           presentScopes.map(s => [s.fk, ctx[s.root]]),
         )
 
+        const nextArgs = { ...args }
+
         if (operation === 'upsert') {
-          throw new PolicyError(
-            `Scoped model "${model}" cannot use upsert via extension. Handle upsert explicitly in route logic.`,
-          )
+          nextArgs.where = buildScopedUniqueWhere(args.where, conditions)
+          if (args.create !== undefined && args.create !== null) {
+            if (typeof args.create !== 'object' || Array.isArray(args.create)) {
+              throw new ShapeError(`upsert expects create to be an object`)
+            }
+            nextArgs.create = { ...args.create }
+            enforceDataScope(nextArgs.create, scopes, overrides, log, model, operation, onScopeRelationWrite, 'create')
+          }
+          if (args.update !== undefined && args.update !== null) {
+            if (typeof args.update !== 'object' || Array.isArray(args.update)) {
+              throw new ShapeError(`upsert expects update to be an object`)
+            }
+            nextArgs.update = { ...args.update }
+            enforceDataScope(nextArgs.update, scopes, overrides, log, model, operation, onScopeRelationWrite, 'mutate')
+          }
+          return query(nextArgs)
         }
 
         if (FIND_UNIQUE_OPS.has(operation)) {
@@ -227,8 +242,6 @@ export function createScopeExtension<TRoots extends string>(
           }
           return handleFindUnique(args, query, conditions, scopes, operation, log)
         }
-
-        const nextArgs = { ...args }
 
         if (READ_OPS.has(operation)) {
           nextArgs.where = buildAndConditions(args.where, conditions)

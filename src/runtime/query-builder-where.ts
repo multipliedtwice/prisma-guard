@@ -2,13 +2,16 @@ import { z } from 'zod'
 import type { TypeMap, EnumMap, FieldMeta } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { COMBINATOR_KEYS, TO_MANY_RELATION_OPS, TO_ONE_RELATION_OPS } from '../shared/constants.js'
+import { isForcedValue } from '../shared/constants.js'
 import { createOperatorSchema } from './zod-type-map.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
 import type { WhereForced } from './query-builder-forced.js'
 import { hasWhereForced, mergeWhereForced } from './query-builder-forced.js'
+import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const UNSUPPORTED_WHERE_TYPES = new Set(['Json', 'Bytes'])
 const STRING_MODE_OPS = new Set(['contains', 'startsWith', 'endsWith', 'equals'])
+const MAX_WHERE_DEPTH = 10
 
 export interface WhereBuiltResult {
   schema: z.ZodTypeAny | null
@@ -109,11 +112,19 @@ function mergeRelationForcedMaps(
   }
 }
 
-export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
+export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap, scalarBase: ScalarBaseMap) {
   function buildWhereSchema(
     model: string,
     whereConfig: Record<string, unknown>,
+    depth?: number,
   ): WhereBuiltResult {
+    const currentDepth = depth ?? 0
+    if (currentDepth > MAX_WHERE_DEPTH) {
+      throw new ShapeError(
+        `Where schema for model "${model}" exceeds maximum nesting depth (${MAX_WHERE_DEPTH}). Check for circular relation references in the shape.`,
+      )
+    }
+
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
@@ -130,6 +141,7 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
           fieldSchemas,
           scalarConditions,
           relationForced,
+          currentDepth,
         )
         continue
       }
@@ -142,8 +154,10 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
           key,
           value,
           fieldMeta,
+          model,
           fieldSchemas,
           relationForced,
+          currentDepth,
         )
         continue
       }
@@ -177,18 +191,34 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
     fieldSchemas: Record<string, z.ZodTypeAny>,
     parentConditions: Record<string, unknown>,
     parentRelations: Record<string, Record<string, WhereForced>>,
+    depth: number,
   ): void {
     if (!isPlainObject(value)) {
       throw new ShapeError(`"${key}" in where shape must be an object defining allowed fields`)
     }
 
-    const result = buildWhereSchema(model, value)
+    const result = buildWhereSchema(model, value, depth + 1)
+
+    if (!result.schema && !hasWhereForced(result.forced)) {
+      throw new ShapeError(
+        `Empty "${key}" combinator in where shape for model "${model}". Define at least one field.`,
+      )
+    }
 
     if (result.schema) {
+      let elementSchema: z.ZodTypeAny = result.schema
+
+      if (!hasWhereForced(result.forced)) {
+        elementSchema = result.schema.refine(
+          (v: any) => v !== undefined && v !== null && Object.keys(v).some(k => v[k] !== undefined),
+          { message: `"${key}" member must specify at least one condition` },
+        )
+      }
+
       if (key === 'NOT') {
-        fieldSchemas[key] = z.union([result.schema, z.array(result.schema)]).optional()
+        fieldSchemas[key] = z.union([elementSchema, z.array(elementSchema).min(1)]).optional()
       } else {
-        fieldSchemas[key] = z.array(result.schema).optional()
+        fieldSchemas[key] = z.array(elementSchema).min(1).optional()
       }
     }
 
@@ -216,14 +246,22 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
     key: string,
     value: unknown,
     fieldMeta: FieldMeta,
+    model: string,
     fieldSchemas: Record<string, z.ZodTypeAny>,
     parentRelations: Record<string, Record<string, WhereForced>>,
+    depth: number,
   ): void {
     if (!isPlainObject(value)) {
       throw new ShapeError(`Relation filter for "${key}" must be an object with operators (some, every, none, is, isNot)`)
     }
 
     const allowedOps = fieldMeta.isList ? TO_MANY_RELATION_OPS : TO_ONE_RELATION_OPS
+
+    if (Object.keys(value).length === 0) {
+      throw new ShapeError(
+        `Empty relation filter for "${key}" on model "${model}". Define at least one operator: ${[...allowedOps].join(', ')}`,
+      )
+    }
 
     const opSchemas: Record<string, z.ZodTypeAny> = {}
     const opForced: Record<string, WhereForced> = {}
@@ -243,7 +281,13 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
         )
       }
 
-      const nested = buildWhereSchema(fieldMeta.type, opValue)
+      const nested = buildWhereSchema(fieldMeta.type, opValue, depth + 1)
+
+      if (!nested.schema && !hasWhereForced(nested.forced)) {
+        throw new ShapeError(
+          `Empty nested where for relation "${key}.${op}" on model "${model}". Define at least one field.`,
+        )
+      }
 
       if (nested.schema) {
         if (!hasWhereForced(nested.forced)) {
@@ -260,6 +304,12 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
       if (hasWhereForced(nested.forced)) {
         opForced[op] = nested.forced
       }
+    }
+
+    if (!hasClientOps && Object.keys(opForced).length === 0) {
+      throw new ShapeError(
+        `Relation filter for "${key}" on model "${model}" produced no conditions. Define at least one nested field in the operator shape.`,
+      )
     }
 
     if (hasClientOps) {
@@ -305,17 +355,18 @@ export function createWhereBuilder(typeMap: TypeMap, enumMap: EnumMap) {
 
     for (const [op, opValue] of Object.entries(operators)) {
       if (opValue === true) {
-        opSchemas[op] = createOperatorSchema(fieldMeta, op, enumMap).optional()
+        opSchemas[op] = createOperatorSchema(fieldMeta, op, enumMap, scalarBase).optional()
         hasClientOps = true
         clientOpKeys.push(op)
         if (fieldMeta.type === 'String' && !fieldMeta.isList && STRING_MODE_OPS.has(op)) {
           hasStringModeOp = true
         }
       } else {
-        const opSchema = createOperatorSchema(fieldMeta, op, enumMap)
+        const actualOpValue = isForcedValue(opValue) ? opValue.value : opValue
+        const opSchema = createOperatorSchema(fieldMeta, op, enumMap, scalarBase)
         let parsed: unknown
         try {
-          parsed = opSchema.parse(opValue)
+          parsed = opSchema.parse(actualOpValue)
         } catch (err: any) {
           throw new ShapeError(
             `Invalid forced value for "${model}.${fieldName}.${op}": ${err.message}`,

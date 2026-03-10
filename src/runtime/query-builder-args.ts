@@ -2,13 +2,25 @@ import { z } from 'zod'
 import type { TypeMap, EnumMap, UniqueMap } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { createBaseType, getSupportedOperators, createOperatorSchema, NUMERIC_TYPES, COMPARABLE_TYPES } from './zod-type-map.js'
+import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const UNSUPPORTED_BY_TYPES = new Set(['Json', 'Bytes'])
+
+function requireConfigTrue(config: Record<string, unknown>, context: string): void {
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== true) {
+      throw new ShapeError(
+        `Config value for "${key}" in ${context} must be true, got ${typeof value}`,
+      )
+    }
+  }
+}
 
 export function createArgsBuilder(
   typeMap: TypeMap,
   enumMap: EnumMap,
   uniqueMap: UniqueMap,
+  scalarBase: ScalarBaseMap,
 ) {
   function buildOrderBySchema(
     model: string,
@@ -16,6 +28,8 @@ export function createArgsBuilder(
   ): z.ZodTypeAny {
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+    requireConfigTrue(orderByConfig, `orderBy on model "${model}"`)
 
     const fieldSchemas: Record<string, z.ZodTypeAny> = {}
 
@@ -66,16 +80,19 @@ export function createArgsBuilder(
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
+    requireConfigTrue(cursorConfig, `cursor on model "${model}"`)
+
     const cursorFields = new Set(Object.keys(cursorConfig))
     const constraints = uniqueMap[model]
     if (constraints && constraints.length > 0) {
       const covered = constraints.some(constraint =>
+        constraint.length === cursorFields.size &&
         constraint.every(field => cursorFields.has(field)),
       )
       if (!covered) {
         const constraintDesc = constraints.map(c => `(${c.join(', ')})`).join(' | ')
         throw new ShapeError(
-          `cursor on model "${model}" must cover a unique constraint: ${constraintDesc}`,
+          `cursor on model "${model}" must exactly match a unique constraint: ${constraintDesc}`,
         )
       }
     }
@@ -86,7 +103,7 @@ export function createArgsBuilder(
       if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}" in cursor`)
       if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in cursor`)
       if (fieldMeta.isList) throw new ShapeError(`List field "${fieldName}" cannot be used in cursor`)
-      fieldSchemas[fieldName] = createBaseType(fieldMeta, enumMap)
+      fieldSchemas[fieldName] = createBaseType(fieldMeta, enumMap, scalarBase)
     }
     return z.object(fieldSchemas).strict().optional()
   }
@@ -141,6 +158,8 @@ export function createArgsBuilder(
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
+    requireConfigTrue(havingConfig, `having on model "${model}"`)
+
     const fieldSchemas: Record<string, z.ZodTypeAny> = {}
     for (const fieldName of Object.keys(havingConfig)) {
       const fieldMeta = modelFields[fieldName]
@@ -156,7 +175,7 @@ export function createArgsBuilder(
       const opSchemas: Record<string, z.ZodTypeAny> = {}
       const opKeys: string[] = []
       for (const op of ops) {
-        opSchemas[op] = createOperatorSchema(fieldMeta, op, enumMap).optional()
+        opSchemas[op] = createOperatorSchema(fieldMeta, op, enumMap, scalarBase).optional()
         opKeys.push(op)
       }
       if (fieldMeta.type === 'String' && !fieldMeta.isList) {
@@ -187,6 +206,8 @@ export function createArgsBuilder(
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
+    requireConfigTrue(fieldConfig, `${opName} on model "${model}"`)
+
     const isNumericOnly = opName === '_avg' || opName === '_sum'
     const isComparableOnly = opName === '_min' || opName === '_max'
 
@@ -199,6 +220,7 @@ export function createArgsBuilder(
       const fieldMeta = modelFields[fieldName]
       if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}" in ${opName}`)
       if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in ${opName}`)
+      if (fieldMeta.isList) throw new ShapeError(`List field "${fieldName}" cannot be used in ${opName}`)
       if (isNumericOnly && !NUMERIC_TYPES.has(fieldMeta.type)) {
         throw new ShapeError(
           `Field "${fieldName}" (${fieldMeta.type}) cannot be used in ${opName}. Only numeric types (Int, Float, Decimal, BigInt) are supported.`,
@@ -233,6 +255,8 @@ export function createArgsBuilder(
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
+    requireConfigTrue(config, `${context} on model "${model}"`)
+
     const fieldSchemas: Record<string, z.ZodTypeAny> = {}
     for (const fieldName of Object.keys(config)) {
       if (fieldName !== '_all') {
@@ -258,6 +282,8 @@ export function createArgsBuilder(
   ): z.ZodTypeAny {
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+    requireConfigTrue(selectConfig, `count select on model "${model}"`)
 
     const fieldSchemas: Record<string, z.ZodTypeAny> = {}
     for (const fieldName of Object.keys(selectConfig)) {

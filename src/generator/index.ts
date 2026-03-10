@@ -13,6 +13,7 @@ const VALID_ON_AMBIGUOUS_SCOPE = new Set<'error' | 'warn' | 'ignore'>(['error', 
 const VALID_ON_MISSING_SCOPE_CONTEXT = new Set<'error' | 'warn' | 'ignore'>(['error', 'warn', 'ignore'])
 const VALID_FIND_UNIQUE_MODE = new Set<'verify' | 'reject'>(['verify', 'reject'])
 const VALID_ON_SCOPE_RELATION_WRITE = new Set<'error' | 'warn' | 'strip'>(['error', 'warn', 'strip'])
+const VALID_BOOLEAN_CONFIG = new Set(['true', 'false'])
 
 function validateConfigEnum<T extends string>(
   name: string,
@@ -25,6 +26,16 @@ function validateConfigEnum<T extends string>(
     )
   }
   return value as T
+}
+
+function validateBooleanConfig(name: string, raw: string | undefined, fallback: boolean): boolean {
+  const value = raw ?? (fallback ? 'true' : 'false')
+  if (!VALID_BOOLEAN_CONFIG.has(value)) {
+    throw new Error(
+      `prisma-guard: Invalid generator config "${name}": "${value}". Allowed values: true, false`,
+    )
+  }
+  return value === 'true'
 }
 
 function emitZodDefaults(defaults: Record<string, string[]>): string {
@@ -59,6 +70,8 @@ generatorHandler({
     const onMissingScopeContext = validateConfigEnum('onMissingScopeContext', (config.onMissingScopeContext as string) ?? 'error', VALID_ON_MISSING_SCOPE_CONTEXT)
     const findUniqueMode = validateConfigEnum('findUniqueMode', (config.findUniqueMode as string) ?? 'reject', VALID_FIND_UNIQUE_MODE)
     const onScopeRelationWrite = validateConfigEnum('onScopeRelationWrite', (config.onScopeRelationWrite as string) ?? 'error', VALID_ON_SCOPE_RELATION_WRITE)
+    const strictDecimal = validateBooleanConfig('strictDecimal', config.strictDecimal as string | undefined, false)
+    const enforceProjection = validateBooleanConfig('enforceProjection', config.enforceProjection as string | undefined, false)
 
     const dmmf = options.dmmf
 
@@ -69,6 +82,8 @@ generatorHandler({
       `  onMissingScopeContext: ${JSON.stringify(onMissingScopeContext)},\n` +
       `  findUniqueMode: ${JSON.stringify(findUniqueMode)},\n` +
       `  onScopeRelationWrite: ${JSON.stringify(onScopeRelationWrite)},\n` +
+      `  strictDecimal: ${JSON.stringify(strictDecimal)},\n` +
+      `  enforceProjection: ${JSON.stringify(enforceProjection)},\n` +
       `} as const\n`,
     )
 

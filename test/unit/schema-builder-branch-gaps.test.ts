@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import type { TypeMap, EnumMap, ZodChains } from '../../src/shared/types.js'
 import { ShapeError } from '../../src/shared/errors.js'
 import { createSchemaBuilder } from '../../src/runtime/schema-builder.js'
+import { createScalarBase } from '../../src/shared/scalar-base.js'
+
+const scalarBase = createScalarBase(false)
 
 const typeMap: TypeMap = {
   User: {
@@ -20,7 +23,7 @@ const enumMap: EnumMap = {}
 const zodChains: ZodChains = {}
 
 function sb() {
-  return createSchemaBuilder(typeMap, zodChains, enumMap)
+  return createSchemaBuilder(typeMap, zodChains, enumMap, scalarBase)
 }
 
 describe('schema-builder branch gaps', () => {
@@ -49,7 +52,7 @@ describe('schema-builder branch gaps', () => {
     }
 
     it('throws ShapeError when include depth exceeds maxDepth', () => {
-      const builder = createSchemaBuilder(deepTypeMap, zodChains, enumMap)
+      const builder = createSchemaBuilder(deepTypeMap, zodChains, enumMap, scalarBase)
       expect(() =>
         builder.buildModelSchema('A', {
           maxDepth: 2,

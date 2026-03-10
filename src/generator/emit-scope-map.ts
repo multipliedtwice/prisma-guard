@@ -15,7 +15,7 @@ interface RelationEntry {
 export function emitScopeMap(
   dmmf: DMMF.Document,
   onAmbiguousScope: 'error' | 'warn' | 'ignore',
-): { source: string; roots: string[] } {
+): { source: string } {
   const rootModels = new Set<string>()
 
   for (const model of dmmf.datamodel.models) {
@@ -115,5 +115,5 @@ export function emitScopeMap(
 
   const source = `export const SCOPE_MAP = {\n${mapEntries}\n} as const\n\nexport type ScopeRoot = ${scopeRootType}\n`
 
-  return { source, roots }
+  return { source }
 }

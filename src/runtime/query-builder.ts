@@ -6,7 +6,7 @@ import type {
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { SHAPE_CONFIG_KEYS, GUARD_SHAPE_KEYS } from '../shared/constants.js'
 import { matchCallerPattern } from '../shared/match-caller.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
 import { requireContext } from './policy.js'
 import { createWhereBuilder } from './query-builder-where.js'
 import { createArgsBuilder } from './query-builder-args.js'
@@ -18,6 +18,7 @@ import {
 import type { BuiltShape, WhereForced } from './query-builder-forced.js'
 import type { WhereBuiltResult } from './query-builder-where.js'
 import type { BuiltIncludeResult, BuiltSelectResult } from './query-builder-projection.js'
+import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const METHOD_ALLOWED_ARGS: Record<QueryMethod, Set<string>> = {
   findMany: new Set(['where', 'include', 'select', 'orderBy', 'cursor', 'take', 'skip', 'distinct']),
@@ -35,10 +36,11 @@ const UNIQUE_WHERE_METHODS: Set<QueryMethod> = new Set(['findUnique', 'findUniqu
 export function createQueryBuilder(
   typeMap: TypeMap,
   enumMap: EnumMap,
-  uniqueMap: UniqueMap = {},
+  uniqueMap: UniqueMap,
+  scalarBase: ScalarBaseMap,
 ) {
-  const whereBuilder = createWhereBuilder(typeMap, enumMap)
-  const argsBuilder = createArgsBuilder(typeMap, enumMap, uniqueMap)
+  const whereBuilder = createWhereBuilder(typeMap, enumMap, scalarBase)
+  const argsBuilder = createArgsBuilder(typeMap, enumMap, uniqueMap, scalarBase)
   const projectionBuilder = createProjectionBuilder(typeMap, enumMap, {
     buildWhereSchema: whereBuilder.buildWhereSchema,
     buildOrderBySchema: argsBuilder.buildOrderBySchema,
@@ -154,7 +156,12 @@ export function createQueryBuilder(
     if (shape.orderBy) schemaFields['orderBy'] = argsBuilder.buildOrderBySchema(model, shape.orderBy)
     if (shape.cursor) schemaFields['cursor'] = argsBuilder.buildCursorSchema(model, shape.cursor)
     if (shape.take) schemaFields['take'] = argsBuilder.buildTakeSchema(shape.take)
-    if (shape.skip) schemaFields['skip'] = z.number().int().min(0).optional()
+    if (shape.skip !== undefined) {
+      if (shape.skip !== true) {
+        throw new ShapeError('Shape config "skip" must be true')
+      }
+      schemaFields['skip'] = z.number().int().min(0).optional()
+    }
     if (shape.distinct) schemaFields['distinct'] = argsBuilder.buildDistinctSchema(model, shape.distinct)
     if (shape._count) schemaFields['_count'] = argsBuilder.buildCountFieldSchema(model, shape._count, '_count')
     if (shape._avg) schemaFields['_avg'] = argsBuilder.buildAggregateFieldSchema(model, '_avg', shape._avg)
@@ -215,6 +222,7 @@ export function createQueryBuilder(
         [...builtCache.entries()].map(([k, v]) => [k, v.zodSchema]),
       ),
       parse(body: unknown, opts?: { ctx?: TCtx; caller?: string }): Record<string, unknown> {
+        const normalizedBody = (body === undefined || body === null) ? {} : body
         let built: BuiltShape
 
         if (isSingle) {
@@ -225,9 +233,9 @@ export function createQueryBuilder(
             built = builtCache.get('_default')!
           }
         } else {
-          if (!isPlainObject(body)) throw new ShapeError('Request body must be an object')
+          if (!isPlainObject(normalizedBody)) throw new ShapeError('Request body must be an object')
 
-          if ('caller' in body) {
+          if ('caller' in (normalizedBody as Record<string, unknown>)) {
             throw new CallerError(
               'Pass caller via opts.caller, not in the request body.',
             )
@@ -258,7 +266,7 @@ export function createQueryBuilder(
           }
         }
 
-        return applyBuiltShape(built, body, isUnique)
+        return applyBuiltShape(built, normalizedBody, isUnique)
       },
     }
   }

@@ -145,6 +145,9 @@ function makeExtension(opts: { wrapZodErrors?: boolean } = {}) {
     scopeMap: {
       Project: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }],
     },
+    guardConfig: {
+      onMissingScopeContext: 'error',
+    },
     contextFn: () => ({}),
     wrapZodErrors: opts.wrapZodErrors,
   });

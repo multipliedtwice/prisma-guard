@@ -155,7 +155,7 @@ export function validateDirective(raw: string): ValidationResult {
       }
       if (ch === '/' && !inCharClass) {
         advance()
-        while (pos < input.length && /[gimsuy]/.test(peek())) {
+        while (pos < input.length && /[gimsuydv]/.test(peek())) {
           advance()
         }
         return null

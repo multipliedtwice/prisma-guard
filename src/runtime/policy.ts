@@ -1,5 +1,5 @@
 import { PolicyError } from '../shared/errors.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
 
 export function requireContext(ctx: unknown, label: string): asserts ctx {
   if (ctx === undefined || ctx === null) {

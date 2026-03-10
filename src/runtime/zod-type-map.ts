@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { FieldMeta, EnumMap } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
-import { SCALAR_BASE } from '../shared/scalar-base.js'
+import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const SCALAR_OPERATORS: Record<string, Set<string>> = {
   String: new Set(['equals', 'not', 'contains', 'startsWith', 'endsWith', 'in', 'notIn']),
@@ -31,7 +31,7 @@ export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
   return [...ops]
 }
 
-export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap): z.ZodTypeAny {
+export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap, scalarBase: ScalarBaseMap): z.ZodTypeAny {
   let base: z.ZodTypeAny
 
   if (fieldMeta.isEnum) {
@@ -41,7 +41,7 @@ export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap): z.ZodTyp
     }
     base = z.enum(values as unknown as [string, ...string[]])
   } else {
-    const factory = SCALAR_BASE[fieldMeta.type]
+    const factory = scalarBase[fieldMeta.type]
     if (!factory) {
       throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`)
     }
@@ -59,6 +59,7 @@ export function createScalarListOperatorSchema(
   fieldMeta: FieldMeta,
   operator: string,
   enumMap: EnumMap,
+  scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
   if (!SCALAR_LIST_OPERATORS.has(operator)) {
     throw new ShapeError(`Operator "${operator}" not supported for scalar list fields`)
@@ -70,12 +71,12 @@ export function createScalarListOperatorSchema(
 
   if (operator === 'equals') {
     const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
-    const itemBase = createBaseType(itemMeta, enumMap)
+    const itemBase = createBaseType(itemMeta, enumMap, scalarBase)
     return fieldMeta.isRequired ? z.array(itemBase) : z.union([z.array(itemBase), z.null()])
   }
 
   const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
-  const itemBase = createBaseType(itemMeta, enumMap)
+  const itemBase = createBaseType(itemMeta, enumMap, scalarBase)
 
   if (operator === 'has') {
     return !fieldMeta.isRequired ? z.union([itemBase, z.null()]) : itemBase
@@ -88,9 +89,10 @@ export function createOperatorSchema(
   fieldMeta: FieldMeta,
   operator: string,
   enumMap: EnumMap,
+  scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
   if (fieldMeta.isList) {
-    return createScalarListOperatorSchema(fieldMeta, operator, enumMap)
+    return createScalarListOperatorSchema(fieldMeta, operator, enumMap, scalarBase)
   }
 
   if (fieldMeta.isEnum) {
@@ -122,7 +124,7 @@ export function createOperatorSchema(
     throw new ShapeError(`Operator "${operator}" not supported for type "${fieldMeta.type}"`)
   }
 
-  const factory = SCALAR_BASE[fieldMeta.type]
+  const factory = scalarBase[fieldMeta.type]
   if (!factory) {
     throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`)
   }

@@ -57,6 +57,35 @@ function checkChainCompatibility(
   return null
 }
 
+function verifyChainExecution(
+  fieldType: string,
+  isList: boolean,
+  isEnum: boolean,
+  enumValues: readonly string[] | undefined,
+  chainStr: string,
+): string | null {
+  const base = buildGenerationBase(fieldType, isList, isEnum, enumValues)
+  if (!base) return null
+
+  let fn: (base: z.ZodTypeAny) => z.ZodTypeAny
+  try {
+    fn = new Function('base', `'use strict'; return base${chainStr}`) as (base: z.ZodTypeAny) => z.ZodTypeAny
+  } catch (err: any) {
+    return `syntax error: ${err.message}`
+  }
+
+  try {
+    const result = fn(base)
+    if (result === null || result === undefined || typeof result !== 'object' || typeof (result as any).parse !== 'function') {
+      return 'chain did not produce a valid Zod schema'
+    }
+  } catch (err: any) {
+    return err.message
+  }
+
+  return null
+}
+
 function findZodInDoc(documentation: string): string[] {
   return documentation.split('\n').filter(line => {
     const trimmed = line.trim()
@@ -133,10 +162,26 @@ export function emitZodChains(
         continue
       }
 
+      const execError = verifyChainExecution(
+        field.type,
+        field.isList,
+        isEnum,
+        isEnum ? enumValues[field.type] : undefined,
+        chainStr,
+      )
+      if (execError) {
+        const msg = `prisma-guard: @zod directive on ${model.name}.${field.name} fails at schema construction: ${execError}`
+        if (onInvalidZod === 'error') {
+          throw new Error(msg)
+        }
+        console.warn(msg)
+        continue
+      }
+
       if (!modelChains[model.name]) modelChains[model.name] = {}
       modelChains[model.name][field.name] = chainStr
 
-      if (result.methods.includes('default')) {
+      if (result.methods.includes('default') || result.methods.includes('catch')) {
         if (!defaults[model.name]) defaults[model.name] = []
         defaults[model.name].push(field.name)
       }

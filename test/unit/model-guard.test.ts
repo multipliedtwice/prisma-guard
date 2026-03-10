@@ -170,6 +170,9 @@ function makeExtension(
     scopeMap: {
       Project: [{ fk: 'tenantId', root: 'Tenant', relationName: 'tenant' }],
     },
+    guardConfig: {
+      onMissingScopeContext: 'error',
+    },
     contextFn: opts.contextFn ?? (() => ({})),
   });
 }

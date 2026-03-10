@@ -4,6 +4,7 @@ import type {
   QueryMethod, ShapeOrFn, QuerySchema, GuardLogger,
 } from '../shared/types.js'
 import { ShapeError, PolicyError, formatZodError } from '../shared/errors.js'
+import { createScalarBase } from '../shared/scalar-base.js'
 import { createSchemaBuilder } from './schema-builder.js'
 import { createQueryBuilder } from './query-builder.js'
 import { createScopeExtension } from './scope-extension.js'
@@ -19,15 +20,20 @@ export function createGuard<
 ) {
   type MName = Extract<keyof TModels, string>
 
+  const scalarBase = createScalarBase(config.guardConfig.strictDecimal ?? false)
+
   const schemaBuilder = createSchemaBuilder(
     config.typeMap,
     config.zodChains,
     config.enumMap,
+    scalarBase,
+    config.zodDefaults ?? {},
   )
   const queryBuilder = createQueryBuilder(
     config.typeMap,
     config.enumMap,
     config.uniqueMap ?? {},
+    scalarBase,
   )
 
   const log: GuardLogger = config.logger ?? { warn: (msg) => console.warn(msg) }
@@ -97,8 +103,8 @@ export function createGuard<
           if (typeof val === 'string' || typeof val === 'number' || typeof val === 'bigint') {
             scopeCtx[key as TRoots] = val
           } else if (val !== null && val !== undefined) {
-            log.warn(
-              `prisma-guard: Scope root "${key}" has non-primitive value (${typeof val}). Only string, number, and bigint values are used for scope context.`,
+            throw new PolicyError(
+              `prisma-guard: Scope root "${key}" has non-primitive value (${typeof val}). Only string, number, and bigint values are accepted for scope context.`,
             )
           }
         }
@@ -119,6 +125,7 @@ export function createGuard<
         zodDefaults: config.zodDefaults ?? {},
         uniqueMap: config.uniqueMap ?? {},
         scopeMap: config.scopeMap,
+        guardConfig: config.guardConfig,
         contextFn,
         wrapZodErrors,
       })

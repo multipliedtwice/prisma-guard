@@ -4,7 +4,7 @@ export const SHAPE_CONFIG_KEYS = new Set([
 ])
 
 export const GUARD_SHAPE_KEYS = new Set([
-  'data', ...SHAPE_CONFIG_KEYS,
+  'data', 'create', 'update', ...SHAPE_CONFIG_KEYS,
 ])
 
 export const COMBINATOR_KEYS = new Set(['AND', 'OR', 'NOT'])
@@ -15,4 +15,16 @@ export const ALL_RELATION_OPS = new Set([...TO_MANY_RELATION_OPS, ...TO_ONE_RELA
 
 export function toDelegateKey(modelName: string): string {
   return modelName[0].toLowerCase() + modelName.slice(1)
+}
+
+const FORCED_MARKER = Symbol.for('prisma-guard.forced')
+
+export function isForcedValue(v: unknown): v is { value: unknown } {
+  return v !== null && typeof v === 'object' && (v as any)[FORCED_MARKER] === true
+}
+
+export function force<T>(value: T): { value: T } {
+  const wrapper: any = { value }
+  wrapper[FORCED_MARKER] = true
+  return wrapper
 }

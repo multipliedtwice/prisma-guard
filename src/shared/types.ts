@@ -57,6 +57,7 @@ export type MutationMethod =
   | 'update'
   | 'updateMany'
   | 'updateManyAndReturn'
+  | 'upsert'
   | 'delete'
   | 'deleteMany'
 
@@ -123,6 +124,8 @@ export interface GuardGeneratedConfig {
   onMissingScopeContext: MissingScopeContextMode
   findUniqueMode?: FindUniqueMode
   onScopeRelationWrite?: OnScopeRelationWrite
+  strictDecimal?: boolean
+  enforceProjection?: boolean
 }
 
 export interface GuardConfig {
@@ -149,6 +152,8 @@ export interface InputSchema {
 
 export interface GuardShape extends ShapeConfig {
   data?: Record<string, true | DataFieldRefine | unknown>
+  create?: Record<string, true | DataFieldRefine | unknown>
+  update?: Record<string, true | DataFieldRefine | unknown>
 }
 
 export type GuardShapeOrFn =

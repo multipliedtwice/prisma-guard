@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import type { TypeMap, ScopeMap, ZodDefaults, DataFieldRefine } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
+import { isForcedValue } from '../shared/constants.js'
+import { deepClone } from '../shared/deep-clone.js'
 import type { createSchemaBuilder } from './schema-builder.js'
+import { schemaProducesValueForUndefined, isZodSchema } from '../shared/utils.js'
 
 export interface BuiltDataSchema {
   schema: z.ZodObject<any>
@@ -16,6 +19,7 @@ export const ALLOWED_BODY_KEYS_UPDATE = new Set(['data', 'where'])
 export const ALLOWED_BODY_KEYS_UPDATE_PROJECTION = new Set(['data', 'where', 'select', 'include'])
 export const ALLOWED_BODY_KEYS_DELETE = new Set(['where'])
 export const ALLOWED_BODY_KEYS_DELETE_PROJECTION = new Set(['where', 'select', 'include'])
+export const ALLOWED_BODY_KEYS_UPSERT = new Set(['where', 'create', 'update', 'select', 'include'])
 
 export const VALID_SHAPE_KEYS_CREATE = new Set(['data'])
 export const VALID_SHAPE_KEYS_CREATE_PROJECTION = new Set(['data', 'select', 'include'])
@@ -23,12 +27,7 @@ export const VALID_SHAPE_KEYS_UPDATE = new Set(['data', 'where'])
 export const VALID_SHAPE_KEYS_UPDATE_PROJECTION = new Set(['data', 'where', 'select', 'include'])
 export const VALID_SHAPE_KEYS_DELETE = new Set(['where'])
 export const VALID_SHAPE_KEYS_DELETE_PROJECTION = new Set(['where', 'select', 'include'])
-
-function isZodSchema(value: unknown): value is z.ZodTypeAny {
-  if (value == null || typeof value !== 'object') return false
-  const v = value as Record<string, unknown>
-  return typeof v.parse === 'function' && typeof v.optional === 'function'
-}
+export const VALID_SHAPE_KEYS_UPSERT = new Set(['where', 'create', 'update', 'select', 'include'])
 
 export function validateMutationBodyKeys(
   body: Record<string, unknown>,
@@ -92,9 +91,13 @@ export function buildDataSchema(
   mode: 'create' | 'update',
   typeMap: TypeMap,
   schemaBuilder: ReturnType<typeof createSchemaBuilder>,
+  zodDefaults: ZodDefaults,
 ): BuiltDataSchema {
   const modelFields = typeMap[model]
   if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+  const zodDefaultFields = zodDefaults[model]
+  const zodDefaultSet = zodDefaultFields ? new Set(zodDefaultFields) : undefined
 
   const schemaMap: Record<string, z.ZodTypeAny> = {}
   const forced: Record<string, unknown> = {}
@@ -122,12 +125,17 @@ export function buildDataSchema(
       }
 
       let fieldSchema: z.ZodTypeAny = refined
+      const handlesUndefined = schemaProducesValueForUndefined(fieldSchema)
 
       if (mode === 'create') {
         if (!fieldMeta.isRequired) {
-          fieldSchema = fieldSchema.nullable().optional()
+          fieldSchema = handlesUndefined
+            ? fieldSchema.nullable()
+            : fieldSchema.nullable().optional()
         } else if (fieldMeta.hasDefault) {
-          fieldSchema = fieldSchema.optional()
+          if (!handlesUndefined) {
+            fieldSchema = fieldSchema.optional()
+          }
         }
       } else {
         if (!fieldMeta.isRequired) {
@@ -140,12 +148,17 @@ export function buildDataSchema(
       schemaMap[fieldName] = fieldSchema
     } else if (value === true) {
       let fieldSchema: z.ZodTypeAny = schemaBuilder.buildFieldSchema(model, fieldName)
+      const isZodDefaultField = zodDefaultSet !== undefined && zodDefaultSet.has(fieldName)
 
       if (mode === 'create') {
         if (!fieldMeta.isRequired) {
-          fieldSchema = fieldSchema.nullable().optional()
+          fieldSchema = isZodDefaultField
+            ? fieldSchema.nullable()
+            : fieldSchema.nullable().optional()
         } else if (fieldMeta.hasDefault) {
-          fieldSchema = fieldSchema.optional()
+          if (!isZodDefaultField) {
+            fieldSchema = fieldSchema.optional()
+          }
         }
       } else {
         if (!fieldMeta.isRequired) {
@@ -157,19 +170,40 @@ export function buildDataSchema(
 
       schemaMap[fieldName] = fieldSchema
     } else {
+      const actualValue = isForcedValue(value) ? value.value : value
       let fieldSchema: z.ZodTypeAny = schemaBuilder.buildFieldSchema(model, fieldName)
       if (!fieldMeta.isRequired) {
         fieldSchema = fieldSchema.nullable()
       }
       let parsed: unknown
       try {
-        parsed = fieldSchema.parse(value)
+        parsed = fieldSchema.parse(actualValue)
       } catch (err: any) {
         throw new ShapeError(
           `Invalid forced data value for "${model}.${fieldName}": ${err.message}`,
         )
       }
       forced[fieldName] = parsed
+    }
+  }
+
+  if (mode === 'create' && zodDefaultFields) {
+    for (const fieldName of zodDefaultFields) {
+      if (fieldName in dataConfig) continue
+      const fieldMeta = modelFields[fieldName]
+      if (!fieldMeta) continue
+      if (fieldMeta.isRelation) continue
+      if (fieldMeta.isUpdatedAt) continue
+
+      const fieldSchema = schemaBuilder.buildFieldSchema(model, fieldName)
+      const result = fieldSchema.safeParse(undefined)
+      if (result.success && result.data !== undefined) {
+        forced[fieldName] = result.data
+      } else {
+        throw new ShapeError(
+          `Field "${fieldName}" on model "${model}" has @zod default/catch but its schema does not produce a value for undefined input`,
+        )
+      }
     }
   }
 
@@ -188,7 +222,7 @@ export function validateAndMergeData(
     throw new ShapeError(`${method} requires "data" in request body`)
   }
   const validated = cached.schema.parse(bodyData)
-  return { ...validated, ...cached.forced }
+  return { ...validated, ...deepClone(cached.forced) }
 }
 
 export function hasDataRefines(dataConfig: Record<string, true | unknown>): boolean {

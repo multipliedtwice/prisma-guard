@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { UniqueMap } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
-import { isPlainObject } from '../shared/is-plain-object.js'
+import { isPlainObject } from '../shared/utils.js'
+import { deepClone } from '../shared/deep-clone.js'
 
 export interface WhereForced {
   conditions: Record<string, unknown>
@@ -19,6 +20,7 @@ export interface ForcedTree {
   include?: Record<string, ForcedTree>
   select?: Record<string, ForcedTree>
   _countWhere?: Record<string, WhereForced>
+  _countWherePlacement?: 'include' | 'select'
 }
 
 export interface BuiltShape {
@@ -30,29 +32,13 @@ export interface BuiltShape {
   forcedSelectCountWhere: Record<string, WhereForced>
 }
 
-export function mergeForced(
-  where: Record<string, unknown> | undefined,
-  forced: Record<string, unknown>,
-): Record<string, unknown> {
-  if (!where || Object.keys(where).length === 0) return forced
-  return { AND: [where, forced] }
-}
-
-export function mergeUniqueForced(
-  where: Record<string, unknown> | undefined,
-  forced: Record<string, unknown>,
-): Record<string, unknown> {
-  if (!where) return { ...forced }
-  return { ...where, AND: [forced] }
-}
-
 export function mergeWhereForced(
   where: Record<string, unknown> | undefined,
   forced: WhereForced,
 ): Record<string, unknown> {
   if (!hasWhereForced(forced)) return where ?? {}
 
-  let result: Record<string, unknown> = where ? structuredClone(where) : {}
+  let result: Record<string, unknown> = where ? deepClone(where) : {}
 
   for (const [relName, opMap] of Object.entries(forced.relations)) {
     if (!result[relName] || typeof result[relName] !== 'object') {
@@ -68,7 +54,7 @@ export function mergeWhereForced(
   }
 
   if (Object.keys(forced.conditions).length > 0) {
-    const scalarClone = structuredClone(forced.conditions)
+    const scalarClone = deepClone(forced.conditions)
     if (Object.keys(result).length === 0) {
       result = scalarClone
     } else {
@@ -101,7 +87,7 @@ export function mergeUniqueWhereForced(
   }
 
   if (Object.keys(forced.conditions).length > 0) {
-    const conditions = [structuredClone(forced.conditions)]
+    const conditions = [deepClone(forced.conditions)]
     const existing = result.AND
     if (existing) {
       if (Array.isArray(existing)) {
@@ -156,6 +142,16 @@ export function applyBuiltShape(
   return validated
 }
 
+function buildCountForPlacement(
+  countWhere: Record<string, WhereForced>,
+): Record<string, unknown> {
+  const countSelect: Record<string, unknown> = {}
+  for (const [countRel, countForced] of Object.entries(countWhere)) {
+    countSelect[countRel] = { where: mergeWhereForced(undefined, countForced) }
+  }
+  return { _count: { select: countSelect } }
+}
+
 export function applyForcedTree(
   validated: Record<string, unknown>,
   key: 'include' | 'select',
@@ -182,11 +178,10 @@ export function applyForcedTree(
         applyForcedTree(expanded, 'select', forced.select)
       }
       if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-        const countSelect: Record<string, unknown> = {}
-        for (const [countRel, countForced] of Object.entries(forced._countWhere)) {
-          countSelect[countRel] = { where: mergeWhereForced(undefined, countForced) }
-        }
-        expanded._count = { select: countSelect }
+        const placement = forced._countWherePlacement ?? 'include'
+        if (!expanded[placement]) expanded[placement] = {}
+        const placementObj = expanded[placement] as Record<string, unknown>
+        Object.assign(placementObj, buildCountForPlacement(forced._countWhere))
       }
       if (expanded.include && expanded.select) {
         throw new ShapeError(
@@ -214,7 +209,11 @@ export function applyForcedTree(
         applyForcedTree(relObj, 'select', forced.select)
       }
       if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-        applyForcedCountWhere(relObj, forced._countWhere)
+        const placement = forced._countWherePlacement ?? 'include'
+        const projContainer = relObj[placement] as Record<string, unknown> | undefined
+        if (projContainer) {
+          applyForcedCountWhere(projContainer, forced._countWhere)
+        }
       }
       if (relObj.include && relObj.select) {
         throw new ShapeError(
@@ -237,11 +236,10 @@ export function buildForcedOnlyContainer(
     if (forced.include) nested.include = buildForcedOnlyContainer(forced.include)
     if (forced.select) nested.select = buildForcedOnlyContainer(forced.select)
     if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-      const countSelect: Record<string, unknown> = {}
-      for (const [countRel, countForced] of Object.entries(forced._countWhere)) {
-        countSelect[countRel] = { where: mergeWhereForced(undefined, countForced) }
-      }
-      nested._count = { select: countSelect }
+      const placement = forced._countWherePlacement ?? 'include'
+      if (!nested[placement]) nested[placement] = {}
+      const placementObj = nested[placement] as Record<string, unknown>
+      Object.assign(placementObj, buildCountForPlacement(forced._countWhere))
     }
     result[relName] = Object.keys(nested).length > 0 ? nested : true
   }
@@ -316,6 +314,34 @@ export function validateResolvedUniqueWhere(
   }
 }
 
+function collectEqualityFields(
+  where: Record<string, unknown>,
+  model: string | undefined,
+  typeMap?: Record<string, Record<string, { isRelation: boolean }>>,
+): Set<string> {
+  const combinators = new Set(['AND', 'OR', 'NOT'])
+  const fields = new Set<string>()
+
+  for (const [key, value] of Object.entries(where)) {
+    if (key === 'AND') {
+      if (isPlainObject(value)) {
+        for (const f of collectEqualityFields(value, model, typeMap)) {
+          fields.add(f)
+        }
+      }
+      continue
+    }
+    if (combinators.has(key)) continue
+    if (typeMap && model && typeMap[model]?.[key]?.isRelation) continue
+    if (!value || !isPlainObject(value)) continue
+    if (Object.keys(value).every(op => op === 'equals')) {
+      fields.add(key)
+    }
+  }
+
+  return fields
+}
+
 export function validateUniqueEquality(
   model: string,
   where: Record<string, unknown>,
@@ -326,22 +352,11 @@ export function validateUniqueEquality(
   const constraints = uniqueMap[model]
   if (!constraints || constraints.length === 0) return
 
-  const combinators = new Set(['AND', 'OR', 'NOT'])
-  const whereFields = new Set<string>()
-  for (const key of Object.keys(where)) {
-    if (combinators.has(key)) continue
-    if (typeMap && typeMap[model]?.[key]?.isRelation) continue
-    whereFields.add(key)
-  }
+  const equalityFields = collectEqualityFields(where, model, typeMap)
 
-  const valid = constraints.some(constraint => {
-    if (!constraint.every(field => whereFields.has(field))) return false
-    return constraint.every(field => {
-      const ops = where[field]
-      if (!ops || !isPlainObject(ops)) return false
-      return Object.keys(ops).every(op => op === 'equals')
-    })
-  })
+  const valid = constraints.some(constraint =>
+    constraint.every(field => equalityFields.has(field)),
+  )
 
   if (!valid) {
     const constraintDesc = constraints.map(c => `(${c.join(', ')})`).join(' | ')

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import type { TypeMap, EnumMap } from '../../src/shared/types.js'
 import { ShapeError, CallerError } from '../../src/shared/errors.js'
 import { createQueryBuilder } from '../../src/runtime/query-builder.js'
+import { createScalarBase } from '../../src/shared/scalar-base.js'
 
 const typeMap: TypeMap = {
   User: {
@@ -38,7 +39,9 @@ const typeMap: TypeMap = {
 
 const enumMap: EnumMap = { Role: ['ADMIN', 'USER'] }
 
-function qb() { return createQueryBuilder(typeMap, enumMap) }
+const scalarBase = createScalarBase(false)
+
+function qb() { return createQueryBuilder(typeMap, enumMap, {}, scalarBase) }
 
 describe('query-builder branch gaps', () => {
   describe('buildSelectSchema: nested args on non-relation scalar', () => {

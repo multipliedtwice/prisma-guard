@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import type { TypeMap, EnumMap, ZodChains, InputOpts, ModelOpts, InputSchema } from '../shared/types.js'
+import type { TypeMap, EnumMap, ZodChains, ZodDefaults, InputOpts, ModelOpts, InputSchema } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { createBaseType } from './zod-type-map.js'
+import type { ScalarBaseMap } from '../shared/scalar-base.js'
+import { schemaProducesValueForUndefined, isZodSchema } from '../shared/utils.js'
 
 const DEFAULT_MAX_CACHE = 500
 const DEFAULT_MAX_DEPTH = 5
@@ -24,16 +26,12 @@ function lruSet(cache: Map<string, z.ZodTypeAny>, key: string, value: z.ZodTypeA
   }
 }
 
-function isZodSchema(value: unknown): value is z.ZodTypeAny {
-  if (value == null || typeof value !== 'object') return false
-  const v = value as Record<string, unknown>
-  return typeof v.parse === 'function' && typeof v.optional === 'function'
-}
-
 export function createSchemaBuilder(
   typeMap: TypeMap,
   zodChains: ZodChains,
   enumMap: EnumMap,
+  scalarBase: ScalarBaseMap,
+  zodDefaults: ZodDefaults,
 ) {
   const chainCache = new Map<string, z.ZodTypeAny>()
 
@@ -49,7 +47,7 @@ export function createSchemaBuilder(
     const fieldMeta = modelFields[field]
     if (!fieldMeta) throw new ShapeError(`Unknown field "${field}" on model "${model}"`)
 
-    const base = createBaseType(fieldMeta, enumMap)
+    const base = createBaseType(fieldMeta, enumMap, scalarBase)
 
     let result = base
     const chainFn = zodChains[model]?.[field]
@@ -75,7 +73,7 @@ export function createSchemaBuilder(
     const fieldMeta = modelFields[field]
     if (!fieldMeta) throw new ShapeError(`Unknown field "${field}" on model "${model}"`)
 
-    return createBaseType(fieldMeta, enumMap)
+    return createBaseType(fieldMeta, enumMap, scalarBase)
   }
 
   function buildInputSchema(model: string, opts: InputOpts): InputSchema {
@@ -88,6 +86,9 @@ export function createSchemaBuilder(
 
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+    const zodDefaultFields = zodDefaults[model]
+    const zodDefaultSet = zodDefaultFields ? new Set(zodDefaultFields) : undefined
 
     let fieldNames = Object.keys(modelFields).filter(name => {
       const meta = modelFields[name]
@@ -113,6 +114,7 @@ export function createSchemaBuilder(
     for (const name of fieldNames) {
       const fieldMeta = modelFields[name]
       let fieldSchema: z.ZodTypeAny
+      let handlesUndefined: boolean
 
       if (opts.refine?.[name]) {
         let refined: unknown
@@ -130,17 +132,25 @@ export function createSchemaBuilder(
           )
         }
         fieldSchema = refined
+        handlesUndefined = schemaProducesValueForUndefined(fieldSchema)
       } else {
         fieldSchema = buildFieldSchema(model, name)
+        handlesUndefined = zodDefaultSet !== undefined && zodDefaultSet.has(name)
       }
 
       if (mode === 'create') {
         if (!fieldMeta.isRequired) {
-          fieldSchema = allowNull
-            ? fieldSchema.nullable().optional()
-            : fieldSchema.optional()
+          if (handlesUndefined) {
+            fieldSchema = allowNull ? fieldSchema.nullable() : fieldSchema
+          } else {
+            fieldSchema = allowNull
+              ? fieldSchema.nullable().optional()
+              : fieldSchema.optional()
+          }
         } else if (fieldMeta.hasDefault) {
-          fieldSchema = fieldSchema.optional()
+          if (!handlesUndefined) {
+            fieldSchema = fieldSchema.optional()
+          }
         }
       } else {
         if (!fieldMeta.isRequired && allowNull) {
@@ -216,7 +226,7 @@ export function createSchemaBuilder(
 
     for (const name of scalarNames) {
       const fieldMeta = modelFields[name]
-      let fieldSchema = createBaseType(fieldMeta, enumMap)
+      let fieldSchema = createBaseType(fieldMeta, enumMap, scalarBase)
       if (!fieldMeta.isRequired) {
         fieldSchema = fieldSchema.nullable()
       }

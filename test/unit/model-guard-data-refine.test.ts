@@ -41,6 +41,9 @@ function makeExtension() {
     zodDefaults,
     uniqueMap,
     scopeMap: {},
+    guardConfig: {
+      onMissingScopeContext: 'error',
+    },
     contextFn: () => ({}),
   })
 }

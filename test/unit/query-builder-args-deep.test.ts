@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createQueryBuilder } from '../../src/runtime/query-builder.js'
 import { ShapeError } from '../../src/shared/errors.js'
 import type { TypeMap, EnumMap, UniqueMap } from '../../src/shared/types.js'
+import { createScalarBase } from '../../src/shared/scalar-base.js'
 
 const typeMap: TypeMap = {
   User: {
@@ -24,7 +25,9 @@ const typeMap: TypeMap = {
 const enumMap: EnumMap = { Role: ['ADMIN', 'USER'] }
 const uniqueMap: UniqueMap = { User: [['id']], Post: [['id']] }
 
-function qb() { return createQueryBuilder(typeMap, enumMap, uniqueMap) }
+const scalarBase = createScalarBase(false)
+
+function qb() { return createQueryBuilder(typeMap, enumMap, uniqueMap, scalarBase) }
 
 describe('distinct', () => {
   it('accepts single distinct field', () => {

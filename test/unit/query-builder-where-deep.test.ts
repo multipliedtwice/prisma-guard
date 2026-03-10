@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createQueryBuilder } from "../../src/runtime/query-builder.js";
 import { ShapeError } from "../../src/shared/errors.js";
 import type { TypeMap, EnumMap } from "../../src/shared/types.js";
+import { createScalarBase } from "../../src/shared/scalar-base.js";
 
 const typeMap: TypeMap = {
   User: {
@@ -159,8 +160,10 @@ const typeMap: TypeMap = {
 
 const enumMap: EnumMap = { Role: ["ADMIN", "USER"] };
 
+const scalarBase = createScalarBase(false)
+
 function qb() {
-  return createQueryBuilder(typeMap, enumMap);
+  return createQueryBuilder(typeMap, enumMap, {}, scalarBase);
 }
 
 describe("where: relation filters", () => {

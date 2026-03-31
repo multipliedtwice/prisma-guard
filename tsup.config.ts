@@ -11,7 +11,7 @@ export default defineConfig([
   },
   {
     entry: { 'runtime/index': 'src/runtime/index.ts' },
-    format: ['esm'],
+    format: ['esm', 'cjs'],
     dts: true,
     sourcemap: true,
   },

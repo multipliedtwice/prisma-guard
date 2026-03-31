@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TypeMap, EnumMap, UniqueMap } from '../shared/types.js'
+import type { TypeMap, EnumMap, UniqueMap, OrderByFieldConfig } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { createBaseType, getSupportedOperators, createOperatorSchema, NUMERIC_TYPES, COMPARABLE_TYPES } from './zod-type-map.js'
 import type { ScalarBaseMap } from '../shared/scalar-base.js'
@@ -22,25 +22,90 @@ export function createArgsBuilder(
   uniqueMap: UniqueMap,
   scalarBase: ScalarBaseMap,
 ) {
+  const sortEnum = z.enum(['asc', 'desc'])
+  const nullsEnum = z.enum(['first', 'last'])
+  const sortWithNulls = z.object({ sort: sortEnum, nulls: nullsEnum.optional() }).strict()
+  const scalarOrderSchema = z.union([sortEnum, sortWithNulls])
+
+  function validateScalarOrderByField(
+    fieldName: string,
+    model: string,
+    modelFields: Record<string, { type: string; isList: boolean; isRelation: boolean }>,
+  ): void {
+    const fieldMeta = modelFields[fieldName]
+    if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
+    if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" in orderBy requires a nested config object, not true`)
+    if (fieldMeta.type === 'Json') throw new ShapeError(`Json field "${fieldName}" cannot be used in orderBy`)
+    if (fieldMeta.isList) throw new ShapeError(`List field "${fieldName}" cannot be used in orderBy`)
+  }
+
   function buildOrderBySchema(
     model: string,
-    orderByConfig: Record<string, true>,
+    orderByConfig: Record<string, OrderByFieldConfig>,
   ): z.ZodTypeAny {
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
-    requireConfigTrue(orderByConfig, `orderBy on model "${model}"`)
-
     const fieldSchemas: Record<string, z.ZodTypeAny> = {}
 
-    for (const fieldName of Object.keys(orderByConfig)) {
+    for (const [fieldName, config] of Object.entries(orderByConfig)) {
       const fieldMeta = modelFields[fieldName]
       if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
-      if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in orderBy`)
-      if (fieldMeta.type === 'Json') throw new ShapeError(`Json field "${fieldName}" cannot be used in orderBy`)
-      if (fieldMeta.isList) throw new ShapeError(`List field "${fieldName}" cannot be used in orderBy`)
 
-      fieldSchemas[fieldName] = z.enum(['asc', 'desc']).optional()
+      if (config === true) {
+        validateScalarOrderByField(fieldName, model, modelFields)
+        fieldSchemas[fieldName] = scalarOrderSchema.optional()
+        continue
+      }
+
+      if (typeof config !== 'object' || config === null) {
+        throw new ShapeError(`Invalid orderBy config for "${fieldName}" on model "${model}": expected true or a nested config object`)
+      }
+
+      if (!fieldMeta.isRelation) {
+        throw new ShapeError(`Scalar field "${fieldName}" in orderBy does not accept nested config`)
+      }
+
+      if (Object.keys(config).length === 0) {
+        throw new ShapeError(`Empty orderBy config for relation "${fieldName}" on model "${model}". Define at least one nested field.`)
+      }
+
+      if (fieldMeta.isList) {
+        const relKeys = Object.keys(config)
+        if (relKeys.length !== 1 || relKeys[0] !== '_count') {
+          throw new ShapeError(`To-many relation "${fieldName}" in orderBy only supports { _count: true }`)
+        }
+        if (config._count !== true) {
+          throw new ShapeError(`_count in orderBy for "${fieldName}" must be true`)
+        }
+        fieldSchemas[fieldName] = z.object({ _count: sortEnum }).strict().optional()
+        continue
+      }
+
+      const relatedModel = fieldMeta.type
+      const relatedFields = typeMap[relatedModel]
+      if (!relatedFields) throw new ShapeError(`Related model "${relatedModel}" not found in type map`)
+
+      const nestedSchemas: Record<string, z.ZodTypeAny> = {}
+      for (const [nestedField, nestedVal] of Object.entries(config)) {
+        if (nestedVal !== true) {
+          throw new ShapeError(`Nested orderBy field "${nestedField}" on relation "${fieldName}" must be true`)
+        }
+        const nestedMeta = relatedFields[nestedField]
+        if (!nestedMeta) throw new ShapeError(`Unknown field "${nestedField}" on model "${relatedModel}" in orderBy`)
+        if (nestedMeta.isRelation) throw new ShapeError(`Nested relation "${nestedField}" in orderBy on "${fieldName}" is not supported`)
+        if (nestedMeta.type === 'Json') throw new ShapeError(`Json field "${nestedField}" cannot be used in orderBy`)
+        if (nestedMeta.isList) throw new ShapeError(`List field "${nestedField}" cannot be used in orderBy`)
+        nestedSchemas[nestedField] = scalarOrderSchema.optional()
+      }
+
+      const nestedKeys = Object.keys(nestedSchemas)
+      fieldSchemas[fieldName] = z.object(nestedSchemas).strict()
+        .refine(
+          (v) => nestedKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
+          { message: `orderBy for relation "${fieldName}" must specify at least one field` },
+        )
+        .optional()
     }
 
     const fieldKeys = Object.keys(fieldSchemas)

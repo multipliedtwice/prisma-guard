@@ -61,11 +61,13 @@ export type MutationMethod =
   | 'delete'
   | 'deleteMany'
 
+export type OrderByFieldConfig = true | Record<string, true>
+
 export interface ShapeConfig {
   where?: Record<string, unknown>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
-  orderBy?: Record<string, true>
+  orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
   take?: { max: number; default?: number }
   skip?: true
@@ -83,7 +85,7 @@ export interface NestedIncludeArgs {
   where?: Record<string, unknown>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
-  orderBy?: Record<string, true>
+  orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
   take?: { max: number; default?: number }
   skip?: true
@@ -92,7 +94,7 @@ export interface NestedIncludeArgs {
 export interface NestedSelectArgs {
   select?: Record<string, true | NestedSelectArgs>
   where?: Record<string, unknown>
-  orderBy?: Record<string, true>
+  orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
   take?: { max: number; default?: number }
   skip?: true

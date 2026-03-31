@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TypeMap, EnumMap, UniqueMap, NestedIncludeArgs, NestedSelectArgs } from '../shared/types.js'
+import type { TypeMap, EnumMap, UniqueMap, NestedIncludeArgs, NestedSelectArgs, OrderByFieldConfig } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { isPlainObject } from '../shared/utils.js'
 import type { WhereForced, ForcedTree } from './query-builder-forced.js'
@@ -29,7 +29,7 @@ export interface BuiltSelectResult {
 
 interface ProjectionDeps {
   buildWhereSchema(model: string, config: Record<string, unknown>): WhereBuiltResult
-  buildOrderBySchema(model: string, config: Record<string, true>): z.ZodTypeAny
+  buildOrderBySchema(model: string, config: Record<string, OrderByFieldConfig>): z.ZodTypeAny
   buildCursorSchema(model: string, config: Record<string, true>): z.ZodTypeAny
   buildTakeSchema(config: { max: number; default?: number }): z.ZodTypeAny
 }

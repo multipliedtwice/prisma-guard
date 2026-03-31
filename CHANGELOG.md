@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.3.1...v1.4.0) (2026-03-31)
+
+
+### Features
+
+* **query-builder:** enhance orderBy configuration to support nested objects and validation for scalar fields ([7f879fb](https://github.com/multipliedtwice/prisma-guard/commit/7f879fbbff4b006beba0d4a4b7a1c52b055fdf63))
+
 ## [1.3.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.3.0...v1.3.1) (2026-03-31)
 
 

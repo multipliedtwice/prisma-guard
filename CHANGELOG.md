@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.2.1...v1.3.0) (2026-03-31)
+
+
+### Features
+
+* **package.json:** update module entry points to support both ESM and CJS formats for better compatibility ([fff2323](https://github.com/multipliedtwice/prisma-guard/commit/fff2323b50edd10dc000c05684b10f03d069506e))
+
 ## [1.2.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.2.0...v1.2.1) (2026-03-10)
 
 

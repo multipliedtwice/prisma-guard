@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.3.0...v1.3.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* **emit-client.ts:** remove file extension from import statements for consistency and to avoid potential issues with module resolution ([63cd30d](https://github.com/multipliedtwice/prisma-guard/commit/63cd30d79d19ce5c3f96eb09bc756eb0ea982d8d))
+
 # [1.3.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.2.1...v1.3.0) (2026-03-31)
 
 

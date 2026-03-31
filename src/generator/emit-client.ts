@@ -13,7 +13,7 @@ export function emitClient(dmmf: DMMF.Document): string {
     `import type { PrismaClient } from '@prisma/client'\n` +
     `import type { GuardInput, GuardedModel } from 'prisma-guard'\n` +
     `import { createGuard } from 'prisma-guard'\n` +
-    `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from './index.js'\n` +
+    `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from './index'\n` +
     `import type { ScopeRoot } from './index.js'\n\n` +
     `interface GuardModelExtension {\n${modelEntries}\n}\n\n` +
     `export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({\n` +

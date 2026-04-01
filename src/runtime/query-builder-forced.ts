@@ -26,6 +26,7 @@ export interface ForcedTree {
 export interface BuiltShape {
   zodSchema: z.ZodObject<any>
   forcedWhere: WhereForced
+  forcedOnlyWhereKeys: Set<string>
   forcedIncludeTree: Record<string, ForcedTree>
   forcedSelectTree: Record<string, ForcedTree>
   forcedIncludeCountWhere: Record<string, WhereForced>
@@ -107,7 +108,25 @@ export function applyBuiltShape(
   body: unknown,
   isUniqueMethod: boolean,
 ): Record<string, unknown> {
-  const validated = built.zodSchema.parse(body) as Record<string, unknown>
+  let parseable = body
+  if (built.forcedOnlyWhereKeys.size > 0 && isPlainObject(body)) {
+    const bodyObj = body as Record<string, unknown>
+    if (isPlainObject(bodyObj.where)) {
+      const where = { ...(bodyObj.where as Record<string, unknown>) }
+      let stripped = false
+      for (const key of built.forcedOnlyWhereKeys) {
+        if (key in where) {
+          delete where[key]
+          stripped = true
+        }
+      }
+      if (stripped) {
+        parseable = { ...bodyObj, where }
+      }
+    }
+  }
+
+  const validated = built.zodSchema.parse(parseable) as Record<string, unknown>
 
   if (hasWhereForced(built.forcedWhere)) {
     validated.where = isUniqueMethod

@@ -67,7 +67,7 @@ export interface ShapeConfig {
   where?: Record<string, unknown>
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
-  orderBy?: Record<string, OrderByFieldConfig>
+  orderBy?: true | Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
   take?: { max: number; default?: number }
   skip?: true

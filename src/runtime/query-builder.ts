@@ -22,7 +22,11 @@ import {
   EMPTY_WHERE_FORCED,
   validateUniqueEquality,
 } from "./query-builder-forced.js";
-import type { BuiltShape, ForcedTree, WhereForced } from "./query-builder-forced.js";
+import type {
+  BuiltShape,
+  ForcedTree,
+  WhereForced,
+} from "./query-builder-forced.js";
 import type { WhereBuiltResult } from "./query-builder-where.js";
 import type {
   BuiltIncludeResult,
@@ -250,31 +254,88 @@ export function createQueryBuilder(
     }
 
     if (shape.orderBy) {
-      if (
-        method === "groupBy" &&
-        (shape.orderBy as unknown) === true &&
-        shape.by
-      ) {
+      if (method === "groupBy" && shape.by) {
         const sortEnum = z.enum(["asc", "desc"]);
-        const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
-        for (const field of shape.by) {
-          groupByOrderFields[field] = sortEnum.optional();
+        const bySet = new Set(shape.by);
+
+        if ((shape.orderBy as unknown) === true) {
+          const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
+          for (const field of shape.by) {
+            groupByOrderFields[field] = sortEnum.optional();
+          }
+          groupByOrderFields["_count"] = sortEnum.optional();
+          const fieldKeys = Object.keys(groupByOrderFields);
+          const singleSchema = z
+            .object(groupByOrderFields)
+            .strict()
+            .refine(
+              (v) =>
+                fieldKeys.some(
+                  (k) => (v as Record<string, unknown>)[k] !== undefined,
+                ),
+              { message: "orderBy must specify at least one field" },
+            );
+          schemaFields["orderBy"] = z
+            .union([singleSchema, z.array(singleSchema).min(1)])
+            .optional();
+        } else {
+          const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
+
+          for (const [fieldName, config] of Object.entries(shape.orderBy)) {
+            if (fieldName === "_count") {
+              if (config === true) {
+                groupByOrderFields["_count"] = sortEnum.optional();
+              } else if (typeof config === "object" && config !== null) {
+                const countFields: Record<string, z.ZodTypeAny> = {};
+                for (const countField of Object.keys(config)) {
+                  if (!bySet.has(countField)) {
+                    throw new ShapeError(
+                      `orderBy _count field "${countField}" must be included in "by" for groupBy`,
+                    );
+                  }
+                  countFields[countField] = sortEnum.optional();
+                }
+                const countKeys = Object.keys(countFields);
+                groupByOrderFields["_count"] = z
+                  .object(countFields)
+                  .strict()
+                  .refine(
+                    (v) =>
+                      countKeys.some(
+                        (k) => (v as Record<string, unknown>)[k] !== undefined,
+                      ),
+                    {
+                      message: "orderBy._count must specify at least one field",
+                    },
+                  )
+                  .optional();
+              }
+              continue;
+            }
+
+            if (!bySet.has(fieldName)) {
+              throw new ShapeError(
+                `orderBy field "${fieldName}" must be included in "by" for groupBy`,
+              );
+            }
+            groupByOrderFields[fieldName] = sortEnum.optional();
+          }
+
+          const fieldKeys = Object.keys(groupByOrderFields);
+          const singleSchema = z
+            .object(groupByOrderFields)
+            .strict()
+            .refine(
+              (v) =>
+                fieldKeys.some(
+                  (k) => (v as Record<string, unknown>)[k] !== undefined,
+                ),
+              { message: "orderBy must specify at least one field" },
+            );
+          schemaFields["orderBy"] = z
+            .union([singleSchema, z.array(singleSchema).min(1)])
+            .optional();
         }
-        groupByOrderFields["_count"] = sortEnum.optional();
-        const fieldKeys = Object.keys(groupByOrderFields);
-        const singleSchema = z
-          .object(groupByOrderFields)
-          .strict()
-          .refine(
-            (v) =>
-              fieldKeys.some(
-                (k) => (v as Record<string, unknown>)[k] !== undefined,
-              ),
-            { message: "orderBy must specify at least one field" },
-          );
-        schemaFields["orderBy"] = z
-          .union([singleSchema, z.array(singleSchema).min(1)])
-          .optional();
       } else {
         schemaFields["orderBy"] = argsBuilder.buildOrderBySchema(
           model,

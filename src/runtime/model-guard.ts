@@ -638,7 +638,22 @@ export function createModelGuardExtension(config: {
           resolved.wasDynamic,
         );
         const isUnique = UNIQUE_READ_METHODS.has(method);
-        const args = applyBuiltShape(built, resolved.body, isUnique);
+
+        let effectiveBody = resolved.body;
+        const hasShapeProjection =
+          !!resolved.shape.select || !!resolved.shape.include;
+        if (hasShapeProjection) {
+          const hasBodyProjection =
+            "select" in resolved.body || "include" in resolved.body;
+          if (!hasBodyProjection) {
+            effectiveBody = {
+              ...resolved.body,
+              ...buildDefaultProjectionBody(resolved.shape),
+            };
+          }
+        }
+
+        const args = applyBuiltShape(built, effectiveBody, isUnique);
         if (isUnique && args.where) {
           validateResolvedUniqueWhere(
             modelName,

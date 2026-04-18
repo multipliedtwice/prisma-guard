@@ -835,6 +835,40 @@ where: {
 
 ---
 
+## Read projection auto-apply
+
+When a read shape defines `select` or `include`, the projection serves two roles: it whitelists what the client is allowed to request, and it provides the default projection when the client omits `select`/`include` from the body.
+
+If the client sends a body without `select` or `include`, the shape's projection is automatically synthesized and passed to Prisma. This eliminates the need for the client to duplicate the field list that the backend already defines.
+
+```ts
+await prisma.company
+  .guard({
+    where: { id: { equals: true } },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      posts: {
+        select: { id: true, title: true },
+        take: { max: 10, default: 5 },
+        where: { isDeleted: { equals: false } },
+      },
+    },
+  })
+  .findFirst({ where: { id: { equals: 'abc' } } })
+```
+
+The client sends only `{ where: { id: { equals: 'abc' } } }`. The shape's `select` is applied automatically, nested `take` defaults and forced `where` conditions are resolved through the normal pipeline.
+
+If the client does send `select` or `include`, the shape acts as a whitelist — only the fields and relations defined in the shape are accepted. This behavior is unchanged from before.
+
+The synthesized projection includes the structural skeleton only: scalar fields as `true`, nested `select`/`include` trees. Client-controllable args like `orderBy`, `take`, `skip`, and `cursor` on nested relations are omitted from the synthesized body. Defaults (e.g. `take: { default: 5 }`) are filled by zod schema parsing, and forced `where` conditions are merged by the forced tree pipeline.
+
+This applies to all read methods: `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`, `aggregate`, and `groupBy`. Methods where `select`/`include` is not valid (`aggregate`, `groupBy`) already reject those shape keys upstream, so auto-apply never triggers for them.
+
+---
+
 ## Mutation return projection
 
 Mutations that return records can use `select` and `include` in the guard shape to control which fields and relations are returned. This uses the same shape syntax as reads — the shape whitelists what the client may request, and forced where conditions on nested includes work identically.
@@ -931,9 +965,11 @@ await prisma.project
 
 The returned `members` will always be filtered to `isActive = true`, regardless of what the client sends.
 
-### Projection is optional by default
+### Mutation projection is optional by default
 
-If the shape does not define `select` or `include`, but the caller also omits them from the body, the mutation returns the full record (default Prisma behavior). Projection shapes only validate and constrain **client-requested** projections — they do not enforce a fixed output boundary unless [enforced projection mode](#enforced-projection-mode) is enabled.
+For mutation methods, if the shape defines `select` or `include` but the client omits them from the body, the mutation returns the full record (default Prisma behavior). Mutation projection shapes only validate and constrain **client-requested** projections unless [enforced projection mode](#enforced-projection-mode) is enabled.
+
+This differs from read methods, where the shape's projection is [automatically applied as default](#read-projection-auto-apply) when the client omits it.
 
 ### select and include are mutually exclusive
 
@@ -947,9 +983,11 @@ Same as reads: a shape (and a body) cannot define both `select` and `include` at
 
 ## Enforced projection mode
 
-By default, projection shapes only constrain client-requested projections. If the client omits `select`/`include` from the body, Prisma returns its default full payload.
+By default, mutation projection shapes only constrain client-requested projections. If the client omits `select`/`include` from the mutation body, Prisma returns its default full payload.
 
-When `enforceProjection` is enabled, the shape's projection is always applied — even when the client does not request one. If the shape defines `select` or `include` and the client omits them, prisma-guard synthesizes a projection from the shape and passes it to Prisma.
+When `enforceProjection` is enabled, mutation shapes' projection is always applied — even when the client does not request one. If the shape defines `select` or `include` and the client omits them, prisma-guard synthesizes a projection from the shape and passes it to Prisma.
+
+This setting applies to mutation methods only. Read methods always auto-apply the shape's projection as default when the client omits it — see [Read projection auto-apply](#read-projection-auto-apply).
 
 ### Configuration
 ```prisma
@@ -987,7 +1025,7 @@ When the client omits `select`/`include`, prisma-guard synthesizes a default pro
 
 When the client does provide `select`/`include`, behavior is identical regardless of this setting: the client's projection is validated against the shape.
 
-This mode applies to all methods that support projection: `create`, `update`, `upsert`, `delete`, `createManyAndReturn`, and `updateManyAndReturn`.
+This mode applies to mutation methods that support projection: `create`, `update`, `upsert`, `delete`, `createManyAndReturn`, and `updateManyAndReturn`.
 
 ---
 
@@ -1597,7 +1635,7 @@ If the same field and operator appear as forced values in different parts of a w
 
 ### Mutation projection shapes do not enforce a fixed output boundary by default
 
-If a mutation shape defines `select` or `include` but the client omits them from the body, Prisma returns its default full payload. Projection shapes only validate and constrain client-requested projections. Enable [enforced projection mode](#enforced-projection-mode) to always apply the shape's projection.
+If a mutation shape defines `select` or `include` but the client omits them from the body, Prisma returns its default full payload. Mutation projection shapes only validate and constrain client-requested projections. Enable [enforced projection mode](#enforced-projection-mode) to always apply the shape's projection. This limitation applies to mutations only — read methods always auto-apply the shape's projection as default.
 
 ### `create` and `update` are reserved shape keys
 
@@ -1699,6 +1737,8 @@ At runtime, `guard.extension()` creates a Prisma extension that provides:
 
 The `.guard()` call validates against the shape, merges forced values, and delegates to the underlying Prisma method. The scope layer runs transparently underneath.
 
+For read methods, when the shape defines `select` or `include` and the client body omits them, the shape's projection is automatically synthesized and passed to Prisma. The synthesized body includes the structural skeleton only (scalar fields as `true`, nested `select`/`include` trees). Client-controllable args on nested relations are omitted — defaults are filled by zod schema parsing and forced where conditions are merged by the forced tree pipeline. This ensures the shape defines both the security boundary and the default response shape in a single declaration.
+
 For create operations, fields tracked in `ZOD_DEFAULTS` that are omitted from the data shape are auto-injected as forced values. The runtime evaluates the field's Zod schema with `undefined` input and uses the resulting value. This ensures `@zod .default(...)` and `@zod .catch(...)` produce correct data even when the field is not listed in the shape.
 
 For fields that ARE listed in the data shape with `true` and have `@zod .default(...)` or `@zod .catch(...)`, the runtime skips wrapping the schema with `.optional()` in create mode. This preserves the Zod default/catch behavior: omitting the field from client input triggers the default rather than passing `undefined` through.
@@ -1790,6 +1830,8 @@ For upsert, `create` and `update` data schemas are cached independently under na
 | conflicting forced where values        | error always (ShapeError)                             |
 | invalid context function return        | error always (PolicyError)                            |
 | `@zod .default()`/`.catch()` field omitted from shape | auto-injected as forced value             |
+| read shape with select/include, client omits | auto-applied as default projection              |
+| mutation shape with select/include, client omits | full payload unless enforceProjection enabled |
 
 ---
 
@@ -1855,6 +1897,7 @@ Node 22
 8. No overloaded sentinel values — `true` always means client-controlled, `force()` for forced booleans
 9. Upsert uses `create`/`update` keys, not `data` — matches Prisma's own API shape
 10. Shape config values are validated strictly — `true` means enabled, anything else is rejected
+11. Read shapes with projection define both the security boundary and the default response — no client duplication needed
 
 ---
 
@@ -1876,6 +1919,7 @@ Node 22
 | Create completeness validation             | yes            | no          |
 | Mutation return projection                 | yes            | manual      |
 | Enforced projection mode                   | opt-in         | no          |
+| Read projection auto-apply                 | yes            | no          |
 | Upsert support                             | yes            | manual      |
 | Inline field refine in data shapes         | yes            | n/a         |
 | ZodError wrapping                          | opt-in         | n/a         |

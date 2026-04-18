@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.6.0...v1.6.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* **query-builder-forced.ts:** simplify where condition handling in applyBuiltShape function for better readability and maintainability ([7509142](https://github.com/multipliedtwice/prisma-guard/commit/75091428f4f6842cd7302ac0813f11a85fc68b95))
+
 # [1.6.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.5.1...v1.6.0) (2026-04-18)
 
 

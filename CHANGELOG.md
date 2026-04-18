@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.5.0...v1.5.1) (2026-04-18)
+
+
+### Bug Fixes
+
+* groupBy ([89643f7](https://github.com/multipliedtwice/prisma-guard/commit/89643f774e88438f1d1111cc2ddd2bed7bc49d3c))
+
 # [1.5.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.4.1...v1.5.0) (2026-04-18)
 
 

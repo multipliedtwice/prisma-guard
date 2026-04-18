@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.5.1...v1.6.0) (2026-04-18)
+
+
+### Features
+
+* **query-builder-forced.ts:** add handling for bodyObj with forcedWhere and missing zodSchema to improve query parsing logic ([1776952](https://github.com/multipliedtwice/prisma-guard/commit/1776952988f801041e93c5029a12949c8351270c))
+
 ## [1.5.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.5.0...v1.5.1) (2026-04-18)
 
 

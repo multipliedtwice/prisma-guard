@@ -405,8 +405,16 @@ export function createWhereBuilder(
     let hasClientOps = false;
     let hasStringModeOp = false;
     const clientOpKeys: string[] = [];
+    let modeConfigValue: unknown = undefined;
+    let hasModeConfig = false;
 
     for (const [op, opValue] of Object.entries(operators)) {
+      if (op === "mode") {
+        hasModeConfig = true;
+        modeConfigValue = opValue;
+        continue;
+      }
+
       if (opValue === true) {
         opSchemas[op] = createOperatorSchema(
           fieldMeta,
@@ -440,16 +448,51 @@ export function createWhereBuilder(
           );
         }
         fieldForced[op] = parsed;
+        if (
+          fieldMeta.type === "String" &&
+          !fieldMeta.isList &&
+          STRING_MODE_OPS.has(op)
+        ) {
+          hasStringModeOp = true;
+        }
       }
     }
 
     if (!hasClientOps && Object.keys(fieldForced).length === 0) {
+      if (hasModeConfig) {
+        throw new ShapeError(
+          `Where field "${fieldName}" on model "${model}" has "mode" but no operators. Add at least one operator (contains, startsWith, endsWith, equals).`,
+        );
+      }
       throw new ShapeError(
         `Empty operator config for where field "${fieldName}" on model "${model}". Define at least one operator.`,
       );
     }
 
-    if (hasStringModeOp) {
+    if (hasModeConfig) {
+      if (!hasStringModeOp) {
+        throw new ShapeError(
+          `"mode" on where field "${fieldName}" on model "${model}" requires a compatible String operator (contains, startsWith, endsWith, equals)`,
+        );
+      }
+      if (modeConfigValue === true) {
+        opSchemas["mode"] = z.enum(["default", "insensitive"]).optional();
+      } else {
+        const actualModeValue = isForcedValue(modeConfigValue)
+          ? modeConfigValue.value
+          : modeConfigValue;
+        const modeSchema = z.enum(["default", "insensitive"]);
+        let parsed: unknown;
+        try {
+          parsed = modeSchema.parse(actualModeValue);
+        } catch (err: any) {
+          throw new ShapeError(
+            `Invalid forced value for "${model}.${fieldName}.mode": ${err.message}`,
+          );
+        }
+        fieldForced["mode"] = parsed;
+      }
+    } else if (hasStringModeOp) {
       opSchemas["mode"] = z.enum(["default", "insensitive"]).optional();
     }
 

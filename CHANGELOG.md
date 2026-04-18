@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.8.0...v1.9.0) (2026-04-18)
+
+
+### Features
+
+* **model-guard:** add support for include in projection and selection logic to enhance data retrieval capabilities ([ae601ae](https://github.com/multipliedtwice/prisma-guard/commit/ae601ae8c0d6c9b65fc71bf420677bf456bd52ae))
+
 # [1.8.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.7.0...v1.8.0) (2026-04-18)
 
 

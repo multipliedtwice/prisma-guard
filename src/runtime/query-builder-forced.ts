@@ -109,32 +109,27 @@ export function applyBuiltShape(
   isUniqueMethod: boolean,
 ): Record<string, unknown> {
   let parseable = body
+  const hasWhereInSchema = 'where' in built.zodSchema.shape
 
   if (isPlainObject(body)) {
     const bodyObj = body as Record<string, unknown>
 
-    if (isPlainObject(bodyObj.where)) {
-      const where = { ...(bodyObj.where as Record<string, unknown>) }
-      let modified = false
-
-      if (built.forcedOnlyWhereKeys.size > 0) {
-        for (const key of built.forcedOnlyWhereKeys) {
-          if (key in where) {
-            delete where[key]
-            modified = true
-          }
-        }
-      }
-
-      if (Object.keys(where).length === 0 && hasWhereForced(built.forcedWhere)) {
+    if ('where' in bodyObj) {
+      if (!hasWhereInSchema) {
         const { where: _, ...rest } = bodyObj
         parseable = rest
-      } else if (modified) {
-        parseable = { ...bodyObj, where }
+      } else if (built.forcedOnlyWhereKeys.size > 0 && isPlainObject(bodyObj.where)) {
+        const where = { ...(bodyObj.where as Record<string, unknown>) }
+        for (const key of built.forcedOnlyWhereKeys) {
+          delete where[key]
+        }
+        if (Object.keys(where).length === 0 && hasWhereForced(built.forcedWhere)) {
+          const { where: _, ...rest } = bodyObj
+          parseable = rest
+        } else {
+          parseable = { ...bodyObj, where }
+        }
       }
-    } else if ('where' in bodyObj && hasWhereForced(built.forcedWhere) && !built.zodSchema.shape.where) {
-      const { where: _, ...rest } = bodyObj
-      parseable = rest
     }
   }
 

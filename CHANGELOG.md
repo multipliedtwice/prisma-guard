@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.4.1...v1.5.0) (2026-04-18)
+
+
+### Features
+
+* **query-builder-where.ts:** add support for "mode" operator in where clause to enhance query flexibility ([29a30a1](https://github.com/multipliedtwice/prisma-guard/commit/29a30a1268edde324834dc6a2f37ba683cd06b6c))
+
 ## [1.4.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.4.0...v1.4.1) (2026-04-01)
 
 

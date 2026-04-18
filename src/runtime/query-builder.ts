@@ -20,10 +20,9 @@ import { createProjectionBuilder } from "./query-builder-projection.js";
 import {
   applyBuiltShape,
   EMPTY_WHERE_FORCED,
-  hasWhereForced,
   validateUniqueEquality,
 } from "./query-builder-forced.js";
-import type { BuiltShape, WhereForced } from "./query-builder-forced.js";
+import type { BuiltShape, ForcedTree, WhereForced } from "./query-builder-forced.js";
 import type { WhereBuiltResult } from "./query-builder-where.js";
 import type {
   BuiltIncludeResult,
@@ -149,9 +148,14 @@ export function createQueryBuilder(
     }
     if (method === "count" && shape.include)
       throw new ShapeError('count does not support "include"');
-    if (method === "groupBy" && shape.orderBy) {
+    if (
+      method === "groupBy" &&
+      shape.orderBy &&
+      (shape.orderBy as unknown) !== true
+    ) {
       const bySet = new Set(shape.by);
       for (const fieldName of Object.keys(shape.orderBy)) {
+        if (fieldName === "_count") continue;
         if (!bySet.has(fieldName)) {
           throw new ShapeError(
             `orderBy field "${fieldName}" must be included in "by" for groupBy`,
@@ -209,14 +213,8 @@ export function createQueryBuilder(
     const schemaFields: Record<string, z.ZodTypeAny> = {};
     let forcedWhere: WhereForced = EMPTY_WHERE_FORCED;
     let forcedOnlyWhereKeys = new Set<string>();
-    let forcedIncludeTree: Record<
-      string,
-      import("./query-builder-forced.js").ForcedTree
-    > = {};
-    let forcedSelectTree: Record<
-      string,
-      import("./query-builder-forced.js").ForcedTree
-    > = {};
+    let forcedIncludeTree: Record<string, ForcedTree> = {};
+    let forcedSelectTree: Record<string, ForcedTree> = {};
     let forcedIncludeCountWhere: Record<string, WhereForced> = {};
     let forcedSelectCountWhere: Record<string, WhereForced> = {};
 
@@ -251,11 +249,40 @@ export function createQueryBuilder(
       }
     }
 
-    if (shape.orderBy)
-      schemaFields["orderBy"] = argsBuilder.buildOrderBySchema(
-        model,
-        shape.orderBy,
-      );
+    if (shape.orderBy) {
+      if (
+        method === "groupBy" &&
+        (shape.orderBy as unknown) === true &&
+        shape.by
+      ) {
+        const sortEnum = z.enum(["asc", "desc"]);
+        const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
+        for (const field of shape.by) {
+          groupByOrderFields[field] = sortEnum.optional();
+        }
+        groupByOrderFields["_count"] = sortEnum.optional();
+        const fieldKeys = Object.keys(groupByOrderFields);
+        const singleSchema = z
+          .object(groupByOrderFields)
+          .strict()
+          .refine(
+            (v) =>
+              fieldKeys.some(
+                (k) => (v as Record<string, unknown>)[k] !== undefined,
+              ),
+            { message: "orderBy must specify at least one field" },
+          );
+        schemaFields["orderBy"] = z
+          .union([singleSchema, z.array(singleSchema).min(1)])
+          .optional();
+      } else {
+        schemaFields["orderBy"] = argsBuilder.buildOrderBySchema(
+          model,
+          shape.orderBy,
+        );
+      }
+    }
+
     if (shape.cursor)
       schemaFields["cursor"] = argsBuilder.buildCursorSchema(
         model,

@@ -109,18 +109,27 @@ export function applyBuiltShape(
   isUniqueMethod: boolean,
 ): Record<string, unknown> {
   let parseable = body
-  if (built.forcedOnlyWhereKeys.size > 0 && isPlainObject(body)) {
+
+  if (isPlainObject(body)) {
     const bodyObj = body as Record<string, unknown>
+
     if (isPlainObject(bodyObj.where)) {
       const where = { ...(bodyObj.where as Record<string, unknown>) }
-      let stripped = false
-      for (const key of built.forcedOnlyWhereKeys) {
-        if (key in where) {
-          delete where[key]
-          stripped = true
+      let modified = false
+
+      if (built.forcedOnlyWhereKeys.size > 0) {
+        for (const key of built.forcedOnlyWhereKeys) {
+          if (key in where) {
+            delete where[key]
+            modified = true
+          }
         }
       }
-      if (stripped) {
+
+      if (Object.keys(where).length === 0 && hasWhereForced(built.forcedWhere)) {
+        const { where: _, ...rest } = bodyObj
+        parseable = rest
+      } else if (modified) {
         parseable = { ...bodyObj, where }
       }
     }

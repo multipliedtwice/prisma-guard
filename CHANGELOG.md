@@ -1,3 +1,15 @@
+# [1.7.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.6.1...v1.7.0) (2026-04-18)
+
+
+### Bug Fixes
+
+* **query-builder.ts:** cast shape.orderBy to Record<string, OrderByFieldConfig> for type safety in orderBy schema building ([81dffb9](https://github.com/multipliedtwice/prisma-guard/commit/81dffb96c015a6c5059a9ce81918446bb4062cdf))
+
+
+### Features
+
+* **query-builder.ts, types.ts:** enhance orderBy handling in groupBy to support flexible configurations and improve validation logic ([2276556](https://github.com/multipliedtwice/prisma-guard/commit/227655652f7dfcc5b1545d8aaea17f4a96989922))
+
 ## [1.6.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.6.0...v1.6.1) (2026-04-18)
 
 

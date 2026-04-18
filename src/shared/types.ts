@@ -93,6 +93,7 @@ export interface NestedIncludeArgs {
 
 export interface NestedSelectArgs {
   select?: Record<string, true | NestedSelectArgs>
+  include?: Record<string, true | NestedIncludeArgs>
   where?: Record<string, unknown>
   orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>

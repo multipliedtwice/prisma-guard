@@ -115,6 +115,7 @@ function buildDefaultSelectInput(
     } else {
       const nested: Record<string, unknown> = {};
       if (value.select) nested.select = buildDefaultSelectInput(value.select);
+      if (value.include) nested.include = buildDefaultIncludeInput(value.include);
       result[key] = Object.keys(nested).length > 0 ? nested : true;
     }
   }
@@ -169,6 +170,58 @@ function buildDefaultProjectionBody(
     return { include: buildDefaultIncludeInput(shape.include) };
   }
   return {};
+}
+
+function applyClientProjectionOverrides(
+  shapeDefault: Record<string, unknown>,
+  clientProjection: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...shapeDefault };
+
+  for (const [key, clientValue] of Object.entries(clientProjection)) {
+    const defaultValue = result[key];
+
+    if (defaultValue === undefined) {
+      result[key] = clientValue;
+      continue;
+    }
+
+    if (clientValue === true) {
+      result[key] = true;
+      continue;
+    }
+
+    if (isPlainObject(clientValue)) {
+      if (!isPlainObject(defaultValue)) {
+        result[key] = clientValue;
+        continue;
+      }
+
+      const merged = { ...(defaultValue as Record<string, unknown>) };
+      const clientObj = clientValue as Record<string, unknown>;
+
+      for (const [argKey, argValue] of Object.entries(clientObj)) {
+        const defaultArgValue = merged[argKey];
+
+        if (
+          (argKey === "select" || argKey === "include") &&
+          isPlainObject(argValue) &&
+          isPlainObject(defaultArgValue)
+        ) {
+          merged[argKey] = applyClientProjectionOverrides(
+            defaultArgValue as Record<string, unknown>,
+            argValue as Record<string, unknown>,
+          );
+        } else {
+          merged[argKey] = argValue;
+        }
+      }
+
+      result[key] = merged;
+    }
+  }
+
+  return result;
 }
 
 function hasClientControlledValues(obj: Record<string, unknown>): boolean {
@@ -255,6 +308,7 @@ function checkSelectForClientArgs(
     )
       return true;
     if (value.select && checkSelectForClientArgs(value.select)) return true;
+    if (value.include && checkIncludeForClientArgs(value.include)) return true;
   }
   return false;
 }
@@ -623,6 +677,48 @@ export function createModelGuardExtension(config: {
       return where;
     }
 
+    function buildEffectiveReadBody(
+      resolved: { body: Record<string, unknown>; shape: GuardShape },
+    ): Record<string, unknown> {
+      const hasShapeProjection =
+        !!resolved.shape.select || !!resolved.shape.include;
+      if (!hasShapeProjection) return resolved.body;
+
+      const defaultProjection = buildDefaultProjectionBody(resolved.shape);
+      const hasBodyProjection =
+        "select" in resolved.body || "include" in resolved.body;
+
+      if (!hasBodyProjection) {
+        return { ...resolved.body, ...defaultProjection };
+      }
+
+      const merged: Record<string, unknown> = { ...resolved.body };
+
+      if (
+        "select" in resolved.body &&
+        "select" in defaultProjection &&
+        isPlainObject(resolved.body.select) &&
+        isPlainObject(defaultProjection.select)
+      ) {
+        merged.select = applyClientProjectionOverrides(
+          defaultProjection.select as Record<string, unknown>,
+          resolved.body.select as Record<string, unknown>,
+        );
+      } else if (
+        "include" in resolved.body &&
+        "include" in defaultProjection &&
+        isPlainObject(resolved.body.include) &&
+        isPlainObject(defaultProjection.include)
+      ) {
+        merged.include = applyClientProjectionOverrides(
+          defaultProjection.include as Record<string, unknown>,
+          resolved.body.include as Record<string, unknown>,
+        );
+      }
+
+      return merged;
+    }
+
     function makeReadMethod(method: QueryMethod) {
       return (body?: unknown) => {
         const caller = resolveCaller();
@@ -639,19 +735,7 @@ export function createModelGuardExtension(config: {
         );
         const isUnique = UNIQUE_READ_METHODS.has(method);
 
-        let effectiveBody = resolved.body;
-        const hasShapeProjection =
-          !!resolved.shape.select || !!resolved.shape.include;
-        if (hasShapeProjection) {
-          const hasBodyProjection =
-            "select" in resolved.body || "include" in resolved.body;
-          if (!hasBodyProjection) {
-            effectiveBody = {
-              ...resolved.body,
-              ...buildDefaultProjectionBody(resolved.shape),
-            };
-          }
-        }
+        const effectiveBody = buildEffectiveReadBody(resolved);
 
         const args = applyBuiltShape(built, effectiveBody, isUnique);
         if (isUnique && args.where) {

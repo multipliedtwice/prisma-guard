@@ -10,7 +10,7 @@ const KNOWN_NESTED_INCLUDE_KEYS = new Set([
   'where', 'include', 'select', 'orderBy', 'cursor', 'take', 'skip',
 ])
 const KNOWN_NESTED_SELECT_KEYS = new Set([
-  'select', 'where', 'orderBy', 'cursor', 'take', 'skip',
+  'select', 'include', 'where', 'orderBy', 'cursor', 'take', 'skip',
 ])
 const KNOWN_COUNT_SELECT_ENTRY_KEYS = new Set(['where'])
 const MAX_PROJECTION_DEPTH = 10
@@ -322,10 +322,14 @@ export function createProjectionBuilder(
           `nested select for "${fieldName}" on model "${model}"`,
         )
 
+        if (config.select && config.include) {
+          throw new ShapeError(`Nested select for "${fieldName}" cannot define both "select" and "include".`)
+        }
+
         if (!fieldMeta.isList) {
           if (config.where || config.orderBy || config.cursor || config.take || config.skip) {
             throw new ShapeError(
-              `Relation "${fieldName}" on model "${model}" is to-one. Only "select" is supported for to-one nested reads, not where/orderBy/cursor/take/skip.`,
+              `Relation "${fieldName}" on model "${model}" is to-one. Only "select" and "include" are supported for to-one nested reads, not where/orderBy/cursor/take/skip.`,
             )
           }
         }
@@ -340,6 +344,15 @@ export function createProjectionBuilder(
           if (Object.keys(nested.forcedCountWhere).length > 0) {
             relForced._countWhere = nested.forcedCountWhere
             relForced._countWherePlacement = 'select'
+          }
+        }
+        if (config.include) {
+          const nested = buildIncludeSchema(fieldMeta.type, config.include, currentDepth + 1)
+          nestedSchemas['include'] = nested.schema
+          if (Object.keys(nested.forcedTree).length > 0) relForced.include = nested.forcedTree
+          if (Object.keys(nested.forcedCountWhere).length > 0) {
+            relForced._countWhere = nested.forcedCountWhere
+            relForced._countWherePlacement = 'include'
           }
         }
         if (config.where) {

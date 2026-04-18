@@ -8,6 +8,7 @@ import type {
   ShapeOrFn,
   QuerySchema,
   NestedSelectArgs,
+  OrderByFieldConfig,
 } from "../shared/types.js";
 import { ShapeError, CallerError } from "../shared/errors.js";
 import { SHAPE_CONFIG_KEYS, GUARD_SHAPE_KEYS } from "../shared/constants.js";
@@ -339,7 +340,7 @@ export function createQueryBuilder(
       } else {
         schemaFields["orderBy"] = argsBuilder.buildOrderBySchema(
           model,
-          shape.orderBy,
+          shape.orderBy as Record<string, OrderByFieldConfig>,
         );
       }
     }

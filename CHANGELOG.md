@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.7.0...v1.8.0) (2026-04-18)
+
+
+### Features
+
+* read schema projection ([d3fa602](https://github.com/multipliedtwice/prisma-guard/commit/d3fa602160761f1dc1202d7f653597a83ed8d051))
+
 # [1.7.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.6.1...v1.7.0) (2026-04-18)
 
 

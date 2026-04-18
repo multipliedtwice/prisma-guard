@@ -132,6 +132,9 @@ export function applyBuiltShape(
       } else if (modified) {
         parseable = { ...bodyObj, where }
       }
+    } else if ('where' in bodyObj && hasWhereForced(built.forcedWhere) && !built.zodSchema.shape.where) {
+      const { where: _, ...rest } = bodyObj
+      parseable = rest
     }
   }
 

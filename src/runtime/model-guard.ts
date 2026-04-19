@@ -115,7 +115,8 @@ function buildDefaultSelectInput(
     } else {
       const nested: Record<string, unknown> = {};
       if (value.select) nested.select = buildDefaultSelectInput(value.select);
-      if (value.include) nested.include = buildDefaultIncludeInput(value.include);
+      if (value.include)
+        nested.include = buildDefaultIncludeInput(value.include);
       result[key] = Object.keys(nested).length > 0 ? nested : true;
     }
   }
@@ -478,10 +479,6 @@ export function createModelGuardExtension(config: {
     }
 
     function buildProjectionSchema(shape: GuardShape): BuiltProjection {
-      if (shape.select && shape.include) {
-        throw new ShapeError('Shape cannot define both "select" and "include"');
-      }
-
       const schemaFields: Record<string, z.ZodTypeAny> = {};
       let forcedIncludeTree: Record<string, ForcedTree> = {};
       let forcedSelectTree: Record<string, ForcedTree> = {};
@@ -546,6 +543,12 @@ export function createModelGuardExtension(config: {
       if (hasBodyProjection && !hasShapeProjection) {
         throw new ShapeError(
           `Guard shape does not define "select" or "include" for ${method} return projection`,
+        );
+      }
+
+      if ("select" in parsed && "include" in parsed) {
+        throw new ShapeError(
+          'Request body cannot define both "select" and "include"',
         );
       }
 
@@ -677,9 +680,10 @@ export function createModelGuardExtension(config: {
       return where;
     }
 
-    function buildEffectiveReadBody(
-      resolved: { body: Record<string, unknown>; shape: GuardShape },
-    ): Record<string, unknown> {
+    function buildEffectiveReadBody(resolved: {
+      body: Record<string, unknown>;
+      shape: GuardShape;
+    }): Record<string, unknown> {
       const hasShapeProjection =
         !!resolved.shape.select || !!resolved.shape.include;
       if (!hasShapeProjection) return resolved.body;

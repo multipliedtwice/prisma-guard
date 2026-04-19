@@ -114,6 +114,10 @@ export function applyBuiltShape(
   if (isPlainObject(body)) {
     const bodyObj = body as Record<string, unknown>
 
+    if ('select' in bodyObj && 'include' in bodyObj) {
+      throw new ShapeError('Request cannot define both "include" and "select"')
+    }
+
     if ('where' in bodyObj) {
       if (!hasWhereInSchema) {
         const { where: _, ...rest } = bodyObj

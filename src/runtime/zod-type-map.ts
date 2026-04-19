@@ -4,7 +4,7 @@ import { ShapeError } from '../shared/errors.js'
 import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const SCALAR_OPERATORS: Record<string, Set<string>> = {
-  String: new Set(['equals', 'not', 'contains', 'startsWith', 'endsWith', 'in', 'notIn']),
+  String: new Set(['equals', 'not', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'gt', 'gte', 'lt', 'lte']),
   Int: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
   Float: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
   Decimal: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),

@@ -138,11 +138,6 @@ export function createQueryBuilder(
     if (UNIQUE_WHERE_METHODS.has(method) && !shape.where) {
       throw new ShapeError(`${method} shape must define "where"`);
     }
-    if (shape.include && shape.select) {
-      throw new ShapeError(
-        'Shape config cannot define both "include" and "select".',
-      );
-    }
     if (method === "groupBy" && !shape.by)
       throw new ShapeError('groupBy shape must define "by"');
     if (method === "groupBy" && (shape.include || shape.select)) {

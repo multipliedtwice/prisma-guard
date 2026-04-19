@@ -1,3 +1,12 @@
+# [1.10.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.9.1...v1.10.0) (2026-04-19)
+
+
+### Features
+
+* enhance createWhereBuilder to support scalar shorthand values and improve operator validation ([0c47c1b](https://github.com/multipliedtwice/prisma-guard/commit/0c47c1b8940ca3df0fb00858b101f04cdf94fb42))
+* integrate coerceToArray utility for improved array handling in query builders and schemas ([83b1861](https://github.com/multipliedtwice/prisma-guard/commit/83b1861819a2410b1d70243c9c85a16dbb20dffc))
+* simplify operator validation in createWhereBuilder by removing redundant checks ([ab5b15d](https://github.com/multipliedtwice/prisma-guard/commit/ab5b15d1c1cc50a9b4b7a175e0e1b7a8ff34e155))
+
 ## [1.9.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.9.0...v1.9.1) (2026-04-19)
 
 

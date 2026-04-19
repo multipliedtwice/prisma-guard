@@ -13,7 +13,7 @@ import type {
 import { ShapeError, CallerError } from "../shared/errors.js";
 import { SHAPE_CONFIG_KEYS, GUARD_SHAPE_KEYS } from "../shared/constants.js";
 import { matchCallerPattern } from "../shared/match-caller.js";
-import { isPlainObject } from "../shared/utils.js";
+import { isPlainObject, coerceToArray } from "../shared/utils.js";
 import { requireContext } from "./policy.js";
 import { createWhereBuilder } from "./query-builder-where.js";
 import { createArgsBuilder } from "./query-builder-args.js";
@@ -272,7 +272,7 @@ export function createQueryBuilder(
               { message: "orderBy must specify at least one field" },
             );
           schemaFields["orderBy"] = z
-            .union([singleSchema, z.array(singleSchema).min(1)])
+            .union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))])
             .optional();
         } else {
           const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
@@ -329,7 +329,7 @@ export function createQueryBuilder(
               { message: "orderBy must specify at least one field" },
             );
           schemaFields["orderBy"] = z
-            .union([singleSchema, z.array(singleSchema).min(1)])
+            .union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))])
             .optional();
         }
       } else {

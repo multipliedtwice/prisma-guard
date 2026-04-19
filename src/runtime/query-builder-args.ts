@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { TypeMap, EnumMap, UniqueMap, OrderByFieldConfig } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
 import { createBaseType, getSupportedOperators, createOperatorSchema, NUMERIC_TYPES, COMPARABLE_TYPES } from './zod-type-map.js'
+import { coerceToArray } from '../shared/utils.js'
 import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const UNSUPPORTED_BY_TYPES = new Set(['Json', 'Bytes'])
@@ -113,7 +114,7 @@ export function createArgsBuilder(
       (v) => fieldKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
       { message: 'orderBy must specify at least one field' },
     )
-    return z.union([singleSchema, z.array(singleSchema).min(1)]).optional()
+    return z.union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))]).optional()
   }
 
   function buildTakeSchema(config: { max: number; default?: number }): z.ZodTypeAny {
@@ -192,7 +193,7 @@ export function createArgsBuilder(
     }
 
     const enumSchema = z.enum(distinctConfig as [string, ...string[]])
-    return z.union([enumSchema, z.array(enumSchema).min(1)]).optional()
+    return z.union([enumSchema, z.preprocess(coerceToArray, z.array(enumSchema).min(1))]).optional()
   }
 
   function buildBySchema(model: string, byConfig: string[]): z.ZodTypeAny {
@@ -213,7 +214,7 @@ export function createArgsBuilder(
       if (fieldMeta.isList) throw new ShapeError(`List field "${fieldName}" cannot be used in by`)
     }
     const enumSchema = z.enum(byConfig as [string, ...string[]])
-    return z.union([enumSchema, z.array(enumSchema).min(1)])
+    return z.union([enumSchema, z.preprocess(coerceToArray, z.array(enumSchema).min(1))])
   }
 
   function buildHavingSchema(

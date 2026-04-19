@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { FieldMeta, EnumMap } from '../shared/types.js'
 import { ShapeError } from '../shared/errors.js'
+import { coerceToArray } from '../shared/utils.js'
 import type { ScalarBaseMap } from '../shared/scalar-base.js'
 
 const SCALAR_OPERATORS: Record<string, Set<string>> = {
@@ -69,12 +70,6 @@ export function createScalarListOperatorSchema(
     return z.boolean()
   }
 
-  if (operator === 'equals') {
-    const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
-    const itemBase = createBaseType(itemMeta, enumMap, scalarBase)
-    return fieldMeta.isRequired ? z.array(itemBase) : z.union([z.array(itemBase), z.null()])
-  }
-
   const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
   const itemBase = createBaseType(itemMeta, enumMap, scalarBase)
 
@@ -82,7 +77,14 @@ export function createScalarListOperatorSchema(
     return !fieldMeta.isRequired ? z.union([itemBase, z.null()]) : itemBase
   }
 
-  return z.array(itemBase)
+  if (operator === 'equals') {
+    const arrSchema = z.array(itemBase)
+    return fieldMeta.isRequired
+      ? z.preprocess(coerceToArray, arrSchema)
+      : z.union([z.preprocess(coerceToArray, arrSchema), z.null()])
+  }
+
+  return z.preprocess(coerceToArray, z.array(itemBase))
 }
 
 export function createOperatorSchema(
@@ -107,10 +109,10 @@ export function createOperatorSchema(
     if (operator === 'equals' || operator === 'not') {
       return !fieldMeta.isRequired ? z.union([enumSchema, z.null()]) : enumSchema
     }
-    if (!fieldMeta.isRequired) {
-      return z.array(z.union([enumSchema, z.null()]))
-    }
-    return z.array(enumSchema)
+    const itemSchema = !fieldMeta.isRequired
+      ? z.union([enumSchema, z.null()])
+      : enumSchema
+    return z.preprocess(coerceToArray, z.array(itemSchema))
   }
 
   const supportedOps = SCALAR_OPERATORS[fieldMeta.type]
@@ -135,10 +137,10 @@ export function createOperatorSchema(
     return !fieldMeta.isRequired ? z.union([scalar, z.null()]) : scalar
   }
   if (operator === 'in' || operator === 'notIn') {
-    if (!fieldMeta.isRequired) {
-      return z.array(z.union([scalar, z.null()]))
-    }
-    return z.array(scalar)
+    const itemSchema = !fieldMeta.isRequired
+      ? z.union([scalar, z.null()])
+      : scalar
+    return z.preprocess(coerceToArray, z.array(itemSchema))
   }
   return scalar
 }

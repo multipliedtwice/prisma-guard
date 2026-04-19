@@ -394,6 +394,26 @@ export function createWhereBuilder(
     fieldSchemas: Record<string, z.ZodTypeAny>,
     scalarConditions: Record<string, unknown>,
   ): void {
+    if (
+      operators === null ||
+      (typeof operators !== "object" && typeof operators !== "function")
+    ) {
+      const equalsSchema = createOperatorSchema(
+        fieldMeta,
+        "equals",
+        enumMap,
+        scalarBase,
+      );
+      const result = equalsSchema.safeParse(operators);
+      if (result.success) {
+        scalarConditions[fieldName] = { equals: result.data };
+        return;
+      }
+      throw new ShapeError(
+        `Where config for scalar field "${fieldName}" on model "${model}" must be an object of operators or a scalar shorthand value`,
+      );
+    }
+
     if (!isPlainObject(operators)) {
       throw new ShapeError(
         `Where config for scalar field "${fieldName}" on model "${model}" must be an object of operators`,
@@ -498,17 +518,28 @@ export function createWhereBuilder(
 
     if (hasClientOps) {
       const opObj = z.object(opSchemas).strict();
-      fieldSchemas[fieldName] = opObj
-        .refine(
-          (v) =>
-            clientOpKeys.some(
-              (k) => (v as Record<string, unknown>)[k] !== undefined,
-            ),
-          {
-            message: `At least one operator required for where field "${fieldName}"`,
-          },
-        )
-        .optional();
+      const refined = opObj.refine(
+        (v) =>
+          clientOpKeys.some(
+            (k) => (v as Record<string, unknown>)[k] !== undefined,
+          ),
+        {
+          message: `At least one operator required for where field "${fieldName}"`,
+        },
+      );
+
+      if ("equals" in opSchemas) {
+        const equalsBase = createOperatorSchema(
+          fieldMeta,
+          "equals",
+          enumMap,
+          scalarBase,
+        );
+        const shorthand = equalsBase.transform((v: unknown) => ({ equals: v }));
+        fieldSchemas[fieldName] = z.union([refined, shorthand]).optional();
+      } else {
+        fieldSchemas[fieldName] = refined.optional();
+      }
     }
 
     if (Object.keys(fieldForced).length > 0) {

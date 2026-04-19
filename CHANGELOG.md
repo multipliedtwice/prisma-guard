@@ -1,3 +1,12 @@
+## [1.9.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.9.0...v1.9.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* **model-guard.ts, query-builder.ts, query-builder-forced.ts:** remove redundant checks for both "select" and "include" in shape definitions to simplify error handling ([908ad96](https://github.com/multipliedtwice/prisma-guard/commit/908ad96de519b00f876c28e0dde6a721bbd6359a))
+* tests ([eb01b8f](https://github.com/multipliedtwice/prisma-guard/commit/eb01b8ff0bd6e96f307ae23636515e06813929a1))
+* tests ([3783dc4](https://github.com/multipliedtwice/prisma-guard/commit/3783dc429dccf811dfe48d11a4f34356ceb96022))
+
 # [1.9.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.8.0...v1.9.0) (2026-04-18)
 
 

@@ -179,15 +179,23 @@ describe("createOperatorSchema", () => {
       },
     );
 
+    it.each(["gt", "gte", "lt", "lte"])(
+      "creates string schema for %s",
+      (op) => {
+        const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
+        expect(schema.parse("hello")).toBe("hello");
+      },
+    );
+
     it.each(["in", "notIn"])("creates string array schema for %s", (op) => {
       const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
       expect(schema.parse(["a", "b"])).toEqual(["a", "b"]);
     });
 
     it("rejects unsupported operator", () => {
-      expect(() => createOperatorSchema(f, "gt", ENUM_MAP, scalarBase)).toThrow(
-        "not supported",
-      );
+      expect(() =>
+        createOperatorSchema(f, "has", ENUM_MAP, scalarBase),
+      ).toThrow("not supported");
     });
   });
 
@@ -250,11 +258,6 @@ describe("createOperatorSchema", () => {
     it("creates enum array schema for in", () => {
       const schema = createOperatorSchema(f, "in", ENUM_MAP, scalarBase);
       expect(schema.parse(["USER", "ADMIN"])).toEqual(["USER", "ADMIN"]);
-    });
-
-    it("supports gt operator for String", () => {
-      const schema = createOperatorSchema(f, "gt", ENUM_MAP, scalarBase);
-      expect(schema.parse("hello")).toBe("hello");
     });
 
     it("allows null for optional enum equals", () => {

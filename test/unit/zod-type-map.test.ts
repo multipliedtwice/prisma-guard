@@ -1,14 +1,17 @@
-import { describe, it, expect } from 'vitest'
-import { z } from 'zod'
-import { createBaseType, createOperatorSchema } from '../../src/runtime/zod-type-map.js'
-import type { FieldMeta, EnumMap } from '../../src/shared/types.js'
-import { createScalarBase } from '../../src/shared/scalar-base.js'
+import { describe, it, expect } from "vitest";
+import { z } from "zod";
+import {
+  createBaseType,
+  createOperatorSchema,
+} from "../../src/runtime/zod-type-map.js";
+import type { FieldMeta, EnumMap } from "../../src/shared/types.js";
+import { createScalarBase } from "../../src/shared/scalar-base.js";
 
-const scalarBase = createScalarBase(false)
+const scalarBase = createScalarBase(false);
 
 function field(overrides: Partial<FieldMeta> = {}): FieldMeta {
   return {
-    type: 'String',
+    type: "String",
     isList: false,
     isRequired: true,
     isId: false,
@@ -16,198 +19,273 @@ function field(overrides: Partial<FieldMeta> = {}): FieldMeta {
     hasDefault: false,
     isUpdatedAt: false,
     ...overrides,
-  }
+  };
 }
 
 const ENUM_MAP: EnumMap = {
-  Role: ['USER', 'ADMIN'],
-  Status: ['ACTIVE', 'INACTIVE'],
-}
+  Role: ["USER", "ADMIN"],
+  Status: ["ACTIVE", "INACTIVE"],
+};
 
-describe('createBaseType', () => {
-  it('creates z.string() for String', () => {
-    const schema = createBaseType(field({ type: 'String' }), ENUM_MAP, scalarBase)
-    expect(schema.parse('hello')).toBe('hello')
-    expect(() => schema.parse(123)).toThrow()
-  })
+describe("createBaseType", () => {
+  it("creates z.string() for String", () => {
+    const schema = createBaseType(
+      field({ type: "String" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse("hello")).toBe("hello");
+    expect(() => schema.parse(123)).toThrow();
+  });
 
-  it('creates z.number().int() for Int', () => {
-    const schema = createBaseType(field({ type: 'Int' }), ENUM_MAP, scalarBase)
-    expect(schema.parse(42)).toBe(42)
-    expect(() => schema.parse(3.14)).toThrow()
-    expect(() => schema.parse('a')).toThrow()
-  })
+  it("creates z.number().int() for Int", () => {
+    const schema = createBaseType(field({ type: "Int" }), ENUM_MAP, scalarBase);
+    expect(schema.parse(42)).toBe(42);
+    expect(() => schema.parse(3.14)).toThrow();
+    expect(() => schema.parse("a")).toThrow();
+  });
 
-  it('creates z.number() for Float', () => {
-    const schema = createBaseType(field({ type: 'Float' }), ENUM_MAP, scalarBase)
-    expect(schema.parse(3.14)).toBe(3.14)
-    expect(schema.parse(42)).toBe(42)
-    expect(() => schema.parse('a')).toThrow()
-  })
+  it("creates z.number() for Float", () => {
+    const schema = createBaseType(
+      field({ type: "Float" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse(3.14)).toBe(3.14);
+    expect(schema.parse(42)).toBe(42);
+    expect(() => schema.parse("a")).toThrow();
+  });
 
-  it('creates union for Decimal', () => {
-    const schema = createBaseType(field({ type: 'Decimal' }), ENUM_MAP, scalarBase)
-    expect(schema.parse(3.14)).toBe(3.14)
-    expect(schema.parse('3.14')).toBe('3.14')
-    expect(() => schema.parse('abc')).toThrow()
-  })
+  it("creates union for Decimal", () => {
+    const schema = createBaseType(
+      field({ type: "Decimal" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse(3.14)).toBe(3.14);
+    expect(schema.parse("3.14")).toBe("3.14");
+    expect(() => schema.parse("abc")).toThrow();
+  });
 
-  it('creates coercible type for BigInt', () => {
-    const schema = createBaseType(field({ type: 'BigInt' }), ENUM_MAP, scalarBase)
-    expect(schema.parse(BigInt(42))).toBe(BigInt(42))
-    expect(schema.parse(42)).toBe(BigInt(42))
-    expect(schema.parse('42')).toBe(BigInt(42))
-    expect(() => schema.parse('abc')).toThrow()
-    expect(() => schema.parse(3.14)).toThrow()
-  })
+  it("creates coercible type for BigInt", () => {
+    const schema = createBaseType(
+      field({ type: "BigInt" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse(BigInt(42))).toBe(BigInt(42));
+    expect(schema.parse(42)).toBe(BigInt(42));
+    expect(schema.parse("42")).toBe(BigInt(42));
+    expect(() => schema.parse("abc")).toThrow();
+    expect(() => schema.parse(3.14)).toThrow();
+  });
 
-  it('creates z.boolean() for Boolean', () => {
-    const schema = createBaseType(field({ type: 'Boolean' }), ENUM_MAP, scalarBase)
-    expect(schema.parse(true)).toBe(true)
-    expect(schema.parse(false)).toBe(false)
-    expect(() => schema.parse('true')).toThrow()
-  })
+  it("creates z.boolean() for Boolean", () => {
+    const schema = createBaseType(
+      field({ type: "Boolean" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse(true)).toBe(true);
+    expect(schema.parse(false)).toBe(false);
+    expect(() => schema.parse("true")).toThrow();
+  });
 
-  it('creates date type for DateTime', () => {
-    const schema = createBaseType(field({ type: 'DateTime' }), ENUM_MAP, scalarBase)
-    const d = schema.parse('2024-01-01T00:00:00Z')
-    expect(d).toBeInstanceOf(Date)
-    expect(schema.parse('2024-01-01T12:30:00+05:00')).toBeInstanceOf(Date)
-    expect(schema.parse(new Date('2024-01-01'))).toBeInstanceOf(Date)
-    expect(() => schema.parse('2024-01-01')).toThrow()
-    expect(() => schema.parse(true)).toThrow()
-    expect(() => schema.parse(42)).toThrow()
-  })
+  it("creates date type for DateTime", () => {
+    const schema = createBaseType(
+      field({ type: "DateTime" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    const d = schema.parse("2024-01-01T00:00:00Z");
+    expect(d).toBeInstanceOf(Date);
+    expect(schema.parse("2024-01-01T12:30:00+05:00")).toBeInstanceOf(Date);
+    expect(schema.parse(new Date("2024-01-01"))).toBeInstanceOf(Date);
+    expect(() => schema.parse("2024-01-01")).toThrow();
+    expect(() => schema.parse(true)).toThrow();
+    expect(() => schema.parse(42)).toThrow();
+  });
 
-  it('creates z.unknown() for Json', () => {
-    const schema = createBaseType(field({ type: 'Json' }), ENUM_MAP, scalarBase)
-    expect(schema.parse({ a: 1 })).toEqual({ a: 1 })
-    expect(schema.parse(null)).toBeNull()
-    expect(schema.parse('str')).toBe('str')
-  })
+  it("creates z.unknown() for Json", () => {
+    const schema = createBaseType(
+      field({ type: "Json" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse({ a: 1 })).toEqual({ a: 1 });
+    expect(schema.parse(null)).toBeNull();
+    expect(schema.parse("str")).toBe("str");
+  });
 
-  it('creates union for Bytes', () => {
-    const schema = createBaseType(field({ type: 'Bytes' }), ENUM_MAP, scalarBase)
-    expect(schema.parse('base64data')).toBe('base64data')
-    expect(schema.parse(new Uint8Array([1, 2]))).toEqual(new Uint8Array([1, 2]))
-  })
+  it("creates union for Bytes", () => {
+    const schema = createBaseType(
+      field({ type: "Bytes" }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse("base64data")).toBe("base64data");
+    expect(schema.parse(new Uint8Array([1, 2]))).toEqual(
+      new Uint8Array([1, 2]),
+    );
+  });
 
-  it('creates z.enum for enum field', () => {
-    const schema = createBaseType(field({ type: 'Role', isEnum: true }), ENUM_MAP, scalarBase)
-    expect(schema.parse('USER')).toBe('USER')
-    expect(schema.parse('ADMIN')).toBe('ADMIN')
-    expect(() => schema.parse('UNKNOWN')).toThrow()
-  })
+  it("creates z.enum for enum field", () => {
+    const schema = createBaseType(
+      field({ type: "Role", isEnum: true }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse("USER")).toBe("USER");
+    expect(schema.parse("ADMIN")).toBe("ADMIN");
+    expect(() => schema.parse("UNKNOWN")).toThrow();
+  });
 
-  it('wraps in z.array for isList', () => {
-    const schema = createBaseType(field({ type: 'String', isList: true }), ENUM_MAP, scalarBase)
-    expect(schema.parse(['a', 'b'])).toEqual(['a', 'b'])
-    expect(() => schema.parse('a')).toThrow()
-  })
+  it("wraps in z.array for isList", () => {
+    const schema = createBaseType(
+      field({ type: "String", isList: true }),
+      ENUM_MAP,
+      scalarBase,
+    );
+    expect(schema.parse(["a", "b"])).toEqual(["a", "b"]);
+    expect(() => schema.parse("a")).toThrow();
+  });
 
-  it('throws on unknown scalar type', () => {
-    expect(() => createBaseType(field({ type: 'UnknownType' }), ENUM_MAP, scalarBase)).toThrow('Unknown scalar type')
-  })
+  it("throws on unknown scalar type", () => {
+    expect(() =>
+      createBaseType(field({ type: "UnknownType" }), ENUM_MAP, scalarBase),
+    ).toThrow("Unknown scalar type");
+  });
 
-  it('throws on unknown enum type', () => {
-    expect(() => createBaseType(field({ type: 'Missing', isEnum: true }), ENUM_MAP, scalarBase)).toThrow('Unknown enum')
-  })
-})
+  it("throws on unknown enum type", () => {
+    expect(() =>
+      createBaseType(
+        field({ type: "Missing", isEnum: true }),
+        ENUM_MAP,
+        scalarBase,
+      ),
+    ).toThrow("Unknown enum");
+  });
+});
 
-describe('createOperatorSchema', () => {
-  describe('string operators', () => {
-    const f = field({ type: 'String' })
+describe("createOperatorSchema", () => {
+  describe("string operators", () => {
+    const f = field({ type: "String" });
 
-    it.each(['equals', 'not', 'contains', 'startsWith', 'endsWith'])('creates string schema for %s', (op) => {
-      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase)
-      expect(schema.parse('hello')).toBe('hello')
-    })
+    it.each(["equals", "not", "contains", "startsWith", "endsWith"])(
+      "creates string schema for %s",
+      (op) => {
+        const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
+        expect(schema.parse("hello")).toBe("hello");
+      },
+    );
 
-    it.each(['in', 'notIn'])('creates string array schema for %s', (op) => {
-      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase)
-      expect(schema.parse(['a', 'b'])).toEqual(['a', 'b'])
-    })
+    it.each(["in", "notIn"])("creates string array schema for %s", (op) => {
+      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
+      expect(schema.parse(["a", "b"])).toEqual(["a", "b"]);
+    });
 
-    it('rejects unsupported operator', () => {
-      expect(() => createOperatorSchema(f, 'gt', ENUM_MAP, scalarBase)).toThrow('not supported')
-    })
-  })
+    it("rejects unsupported operator", () => {
+      expect(() => createOperatorSchema(f, "gt", ENUM_MAP, scalarBase)).toThrow(
+        "not supported",
+      );
+    });
+  });
 
-  describe('int operators', () => {
-    const f = field({ type: 'Int' })
+  describe("int operators", () => {
+    const f = field({ type: "Int" });
 
-    it.each(['equals', 'not', 'gt', 'gte', 'lt', 'lte'])('creates int schema for %s', (op) => {
-      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase)
-      expect(schema.parse(42)).toBe(42)
-    })
+    it.each(["equals", "not", "gt", "gte", "lt", "lte"])(
+      "creates int schema for %s",
+      (op) => {
+        const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
+        expect(schema.parse(42)).toBe(42);
+      },
+    );
 
-    it.each(['in', 'notIn'])('creates int array schema for %s', (op) => {
-      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase)
-      expect(schema.parse([1, 2])).toEqual([1, 2])
-    })
-  })
+    it.each(["in", "notIn"])("creates int array schema for %s", (op) => {
+      const schema = createOperatorSchema(f, op, ENUM_MAP, scalarBase);
+      expect(schema.parse([1, 2])).toEqual([1, 2]);
+    });
+  });
 
-  describe('boolean operators', () => {
-    const f = field({ type: 'Boolean' })
+  describe("boolean operators", () => {
+    const f = field({ type: "Boolean" });
 
-    it('creates boolean schema for equals', () => {
-      const schema = createOperatorSchema(f, 'equals', ENUM_MAP, scalarBase)
-      expect(schema.parse(true)).toBe(true)
-    })
+    it("creates boolean schema for equals", () => {
+      const schema = createOperatorSchema(f, "equals", ENUM_MAP, scalarBase);
+      expect(schema.parse(true)).toBe(true);
+    });
 
-    it('rejects gt on boolean', () => {
-      expect(() => createOperatorSchema(f, 'gt', ENUM_MAP, scalarBase)).toThrow('not supported')
-    })
-  })
+    it("rejects gt on boolean", () => {
+      expect(() => createOperatorSchema(f, "gt", ENUM_MAP, scalarBase)).toThrow(
+        "not supported",
+      );
+    });
+  });
 
-  describe('nullable fields', () => {
-    const f = field({ type: 'String', isRequired: false })
+  describe("nullable fields", () => {
+    const f = field({ type: "String", isRequired: false });
 
-    it('allows null for equals on optional field', () => {
-      const schema = createOperatorSchema(f, 'equals', ENUM_MAP, scalarBase)
-      expect(schema.parse(null)).toBeNull()
-      expect(schema.parse('hello')).toBe('hello')
-    })
+    it("allows null for equals on optional field", () => {
+      const schema = createOperatorSchema(f, "equals", ENUM_MAP, scalarBase);
+      expect(schema.parse(null)).toBeNull();
+      expect(schema.parse("hello")).toBe("hello");
+    });
 
-    it('allows null in array for in on optional field', () => {
-      const schema = createOperatorSchema(f, 'in', ENUM_MAP, scalarBase)
-      expect(schema.parse(['a', null])).toEqual(['a', null])
-    })
-  })
+    it("allows null in array for in on optional field", () => {
+      const schema = createOperatorSchema(f, "in", ENUM_MAP, scalarBase);
+      expect(schema.parse(["a", null])).toEqual(["a", null]);
+    });
+  });
 
-  describe('enum operators', () => {
-    const f = field({ type: 'Role', isEnum: true })
+  describe("enum operators", () => {
+    const f = field({ type: "Role", isEnum: true });
 
-    it('creates enum schema for equals', () => {
-      const schema = createOperatorSchema(f, 'equals', ENUM_MAP, scalarBase)
-      expect(schema.parse('USER')).toBe('USER')
-      expect(() => schema.parse('UNKNOWN')).toThrow()
-    })
+    it("creates enum schema for equals", () => {
+      const schema = createOperatorSchema(f, "equals", ENUM_MAP, scalarBase);
+      expect(schema.parse("USER")).toBe("USER");
+      expect(() => schema.parse("UNKNOWN")).toThrow();
+    });
 
-    it('creates enum array schema for in', () => {
-      const schema = createOperatorSchema(f, 'in', ENUM_MAP, scalarBase)
-      expect(schema.parse(['USER', 'ADMIN'])).toEqual(['USER', 'ADMIN'])
-    })
+    it("creates enum array schema for in", () => {
+      const schema = createOperatorSchema(f, "in", ENUM_MAP, scalarBase);
+      expect(schema.parse(["USER", "ADMIN"])).toEqual(["USER", "ADMIN"]);
+    });
 
-    it('rejects unsupported operator for enum', () => {
-      expect(() => createOperatorSchema(f, 'gt', ENUM_MAP, scalarBase)).toThrow('not supported')
-    })
+    it("supports gt operator for String", () => {
+      const schema = createOperatorSchema(f, "gt", ENUM_MAP, scalarBase);
+      expect(schema.parse("hello")).toBe("hello");
+    });
 
-    it('allows null for optional enum equals', () => {
-      const optEnum = field({ type: 'Role', isEnum: true, isRequired: false })
-      const schema = createOperatorSchema(optEnum, 'equals', ENUM_MAP, scalarBase)
-      expect(schema.parse(null)).toBeNull()
-    })
-  })
+    it("allows null for optional enum equals", () => {
+      const optEnum = field({ type: "Role", isEnum: true, isRequired: false });
+      const schema = createOperatorSchema(
+        optEnum,
+        "equals",
+        ENUM_MAP,
+        scalarBase,
+      );
+      expect(schema.parse(null)).toBeNull();
+    });
+  });
 
-  describe('bytes operators', () => {
-    it('throws on any operator for Bytes type', () => {
-      const f = field({ type: 'Bytes' })
-      expect(() => createOperatorSchema(f, 'equals', ENUM_MAP, scalarBase)).toThrow('does not support filter operators')
-    })
-  })
+  describe("bytes operators", () => {
+    it("throws on any operator for Bytes type", () => {
+      const f = field({ type: "Bytes" });
+      expect(() =>
+        createOperatorSchema(f, "equals", ENUM_MAP, scalarBase),
+      ).toThrow("does not support filter operators");
+    });
+  });
 
-  it('throws on unknown scalar type for operator', () => {
-    expect(() => createOperatorSchema(field({ type: 'UnknownType' }), 'equals', ENUM_MAP, scalarBase)).toThrow()
-  })
-})
+  it("throws on unknown scalar type for operator", () => {
+    expect(() =>
+      createOperatorSchema(
+        field({ type: "UnknownType" }),
+        "equals",
+        ENUM_MAP,
+        scalarBase,
+      ),
+    ).toThrow();
+  });
+});

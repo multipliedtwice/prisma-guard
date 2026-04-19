@@ -676,12 +676,13 @@ describe("query-builder coverage: method arg validation", () => {
     ).toThrow(ShapeError);
   });
 
-  it("throws on both include and select", () => {
+  it("throws on both include and select in body, not in shape", () => {
+    const schema = qb.buildQuerySchema("User", "findMany", {
+      include: { posts: true },
+      select: { id: true },
+    });
     expect(() =>
-      qb.buildQuerySchema("User", "findMany", {
-        include: { posts: true },
-        select: { id: true },
-      } as any),
+      schema.parse({ include: { posts: true }, select: { id: true } }),
     ).toThrow(ShapeError);
   });
 

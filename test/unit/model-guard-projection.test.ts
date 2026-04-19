@@ -146,7 +146,7 @@ function makeExtension(opts: { wrapZodErrors?: boolean } = {}) {
       Project: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }],
     },
     guardConfig: {
-      onMissingScopeContext: 'error',
+      onMissingScopeContext: "error",
     },
     contextFn: () => ({}),
     wrapZodErrors: opts.wrapZodErrors,
@@ -248,7 +248,7 @@ describe("model-guard projection", () => {
     expect(calls.delete[0].select).toEqual({ id: true });
   });
 
-  it("shape rejects both select and include in projection", () => {
+  it("shape allows both select and include, body rejects simultaneous use", () => {
     const ext = makeExtension();
     const { handler } = makeDelegateMock();
 
@@ -261,8 +261,16 @@ describe("model-guard projection", () => {
       guarded.create({
         data: { title: "x" },
         select: { id: true },
+        include: { tasks: true },
       }),
     ).toThrow(ShapeError);
+
+    expect(() =>
+      guarded.create({
+        data: { title: "x" },
+        select: { id: true },
+      }),
+    ).not.toThrow();
   });
 
   it("forced where on nested include in mutation projection", () => {

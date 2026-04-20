@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.18.0...v1.18.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* **query-builder-forced.ts:** enhance collectEqualityFields function to handle non-object values correctly ([df3e072](https://github.com/multipliedtwice/prisma-guard/commit/df3e0723c8be1c2382e5633e1f4d4aa02a7de2c8))
+
 # [1.18.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.17.0...v1.18.0) (2026-04-20)
 
 

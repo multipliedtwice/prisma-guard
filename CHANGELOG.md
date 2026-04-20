@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.14.1...v1.15.0) (2026-04-20)
+
+
+### Features
+
+* **constants.ts:** add unsupported marker and related functions to handle unsupported values ([264fc98](https://github.com/multipliedtwice/prisma-guard/commit/264fc98a07bcabf38dce63288e3ef8fa569dafad))
+
 ## [1.14.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.14.0...v1.14.1) (2026-04-20)
 
 

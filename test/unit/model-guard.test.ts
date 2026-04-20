@@ -168,10 +168,10 @@ function makeExtension(
     zodDefaults,
     uniqueMap,
     scopeMap: {
-      Project: [{ fk: 'tenantId', root: 'Tenant', relationName: 'tenant' }],
+      Project: [{ fk: "tenantId", root: "Tenant", relationName: "tenant" }],
     },
     guardConfig: {
-      onMissingScopeContext: 'error',
+      onMissingScopeContext: "error",
     },
     contextFn: opts.contextFn ?? (() => ({})),
   });
@@ -1020,7 +1020,7 @@ describe("model-guard", () => {
           $parent: { project: handler },
         } as any,
         {
-          data: { title: 123 },
+          data: { title: [] },
         },
       );
 
@@ -1273,7 +1273,9 @@ describe("model-guard", () => {
         },
       );
 
-      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(
+        PolicyError,
+      );
     });
 
     it("throws PolicyError when contextFn returns array", () => {
@@ -1292,7 +1294,9 @@ describe("model-guard", () => {
         },
       );
 
-      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(
+        PolicyError,
+      );
     });
 
     it("throws PolicyError when contextFn returns primitive", () => {
@@ -1311,7 +1315,9 @@ describe("model-guard", () => {
         },
       );
 
-      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(
+        PolicyError,
+      );
     });
 
     it("throws PolicyError for null context in dynamic shape", () => {
@@ -1330,7 +1336,9 @@ describe("model-guard", () => {
         }),
       );
 
-      expect(() => guarded.create({ data: { title: "x" } })).toThrow(PolicyError);
+      expect(() => guarded.create({ data: { title: "x" } })).toThrow(
+        PolicyError,
+      );
     });
   });
 

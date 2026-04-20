@@ -32,15 +32,15 @@ describe('guard wrapZodErrors', () => {
     it('wraps ZodError as ShapeError when wrapZodErrors is true', () => {
       const guard = makeGuard(true)
       const schema = guard.input('User', { mode: 'create', pick: ['email'] })
-      expect(() => schema.parse({ email: 123 })).toThrow(ShapeError)
+      expect(() => schema.parse({ email: [] })).toThrow(ShapeError)
     })
 
     it('throws raw ZodError when wrapZodErrors is false', () => {
       const guard = makeGuard(false)
       const schema = guard.input('User', { mode: 'create', pick: ['email'] })
-      expect(() => schema.parse({ email: 123 })).toThrow()
+      expect(() => schema.parse({ email: [] })).toThrow()
       try {
-        schema.parse({ email: 123 })
+        schema.parse({ email: [] })
       } catch (err: any) {
         expect(err.name).not.toBe('ShapeError')
       }
@@ -60,7 +60,7 @@ describe('guard wrapZodErrors', () => {
       const schema = guard.query('User', 'findMany', {
         where: { email: { contains: true } },
       })
-      expect(() => schema.parse({ where: { email: { contains: 123 } } })).toThrow(ShapeError)
+      expect(() => schema.parse({ where: { email: { contains: [] } } })).toThrow(ShapeError)
     })
 
     it('wrapped query parse still returns valid data', () => {

@@ -311,7 +311,7 @@ describe("model-guard wrapZodErrors", () => {
       { data: { title: true } },
     );
 
-    expect(() => guarded.create({ data: { title: 123 } })).toThrow(ShapeError);
+    expect(() => guarded.create({ data: { title: [] } })).toThrow(ShapeError);
   });
 
   it("wraps ZodError as ShapeError on read validation failure", () => {
@@ -324,7 +324,7 @@ describe("model-guard wrapZodErrors", () => {
     );
 
     expect(() =>
-      guarded.findMany({ where: { title: { contains: 123 } } }),
+      guarded.findMany({ where: { title: { contains: [] } } }),
     ).toThrow(ShapeError);
   });
 });

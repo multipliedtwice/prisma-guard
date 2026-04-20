@@ -1,7 +1,5 @@
 import type { DMMF } from '@prisma/generator-helper'
 
-const SKIP_FIELD_KINDS = new Set(['unsupported'])
-
 function collectUniqueConstraints(model: DMMF.Model): string[][] {
   const seen = new Set<string>()
   const constraints: string[][] = []
@@ -44,10 +42,10 @@ export function emitTypeMap(dmmf: DMMF.Document): string {
   const modelEntries = dmmf.datamodel.models
     .map(model => {
       const fieldEntries = model.fields
-        .filter(field => !SKIP_FIELD_KINDS.has(field.kind))
         .map(field => {
           const isRelation = field.kind === 'object' || field.relationName != null
           const isEnum = enumNames.has(field.type)
+          const isUnsupported = field.kind === 'unsupported'
           const meta: string[] = [
             `type: ${JSON.stringify(field.type)}`,
             `isList: ${field.isList}`,
@@ -58,6 +56,7 @@ export function emitTypeMap(dmmf: DMMF.Document): string {
             `isUpdatedAt: ${field.isUpdatedAt}`,
           ]
           if (isEnum) meta.push(`isEnum: true`)
+          if (isUnsupported) meta.push(`isUnsupported: true`)
           if (field.isUnique) meta.push(`isUnique: true`)
           return `    ${JSON.stringify(field.name)}: { ${meta.join(', ')} },`
         })

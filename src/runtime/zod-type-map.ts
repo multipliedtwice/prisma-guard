@@ -35,7 +35,9 @@ export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
 export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap, scalarBase: ScalarBaseMap): z.ZodTypeAny {
   let base: z.ZodTypeAny
 
-  if (fieldMeta.isEnum) {
+  if (fieldMeta.isUnsupported) {
+    base = z.unknown()
+  } else if (fieldMeta.isEnum) {
     const values = enumMap[fieldMeta.type]
     if (!values || values.length === 0) {
       throw new ShapeError(`Unknown enum: ${fieldMeta.type}`)

@@ -10,6 +10,7 @@ export interface FieldMeta {
   isUpdatedAt: boolean
   isEnum?: boolean
   isUnique?: boolean
+  isUnsupported?: boolean
 }
 
 export interface GuardLogger {

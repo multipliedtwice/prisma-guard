@@ -4,7 +4,7 @@ import { ShapeError } from '../shared/errors.js'
 import { isForcedValue } from '../shared/constants.js'
 import { deepClone } from '../shared/deep-clone.js'
 import type { createSchemaBuilder } from './schema-builder.js'
-import { schemaProducesValueForUndefined, isZodSchema } from '../shared/utils.js'
+import { schemaProducesValueForUndefined, isZodSchema, isPlainObject, coerceToArray } from '../shared/utils.js'
 
 export interface BuiltDataSchema {
   schema: z.ZodObject<any>
@@ -28,6 +28,12 @@ export const VALID_SHAPE_KEYS_UPDATE_PROJECTION = new Set(['data', 'where', 'sel
 export const VALID_SHAPE_KEYS_DELETE = new Set(['where'])
 export const VALID_SHAPE_KEYS_DELETE_PROJECTION = new Set(['where', 'select', 'include'])
 export const VALID_SHAPE_KEYS_UPSERT = new Set(['where', 'create', 'update', 'select', 'include'])
+
+const KNOWN_RELATION_WRITE_OPS = new Set([
+  'connect', 'connectOrCreate', 'create', 'createMany',
+  'disconnect', 'delete', 'set',
+  'update', 'updateMany', 'upsert', 'deleteMany',
+])
 
 export function validateMutationBodyKeys(
   body: Record<string, unknown>,
@@ -70,6 +76,25 @@ export function validateCreateCompleteness(
   const zodDefaultFields = zodDefaults[modelName]
   const zodDefaultSet = zodDefaultFields ? new Set(zodDefaultFields) : undefined
 
+  const relationFksCoveredByShape = new Set<string>()
+  for (const [fieldName, value] of Object.entries(dataConfig)) {
+    const meta = modelFields[fieldName]
+    if (!meta) continue
+    if (meta.isRelation && isPlainObject(value)) {
+      const relConfig = value as Record<string, unknown>
+      if (relConfig.connect || relConfig.connectOrCreate || relConfig.create) {
+        const fkFields = Object.keys(modelFields).filter(f => {
+          const fm = modelFields[f]
+          return !fm.isRelation && fieldName !== f
+        })
+        for (const fk of Object.keys(modelFields)) {
+          const fm = modelFields[fk]
+          if (fm.isRelation) continue
+        }
+      }
+    }
+  }
+
   for (const [fieldName, meta] of Object.entries(modelFields)) {
     if (meta.isRelation) continue
     if (meta.isUpdatedAt) continue
@@ -79,10 +104,275 @@ export function validateCreateCompleteness(
     if (scopeFks.has(fieldName)) continue
     if (zodDefaultSet && zodDefaultSet.has(fieldName)) continue
 
+    const coveredByRelation = Object.entries(dataConfig).some(([shapeName, shapeVal]) => {
+      const shapeMeta = modelFields[shapeName]
+      if (!shapeMeta || !shapeMeta.isRelation) return false
+      if (!isPlainObject(shapeVal)) return false
+      const relConfig = shapeVal as Record<string, unknown>
+      return !!(relConfig.connect || relConfig.connectOrCreate || relConfig.create)
+    })
+
+    if (coveredByRelation) continue
+
     throw new ShapeError(
       `Required field "${fieldName}" on model "${modelName}" is missing from create data shape, has no default, and is not a scope FK`,
     )
   }
+}
+
+function buildWhereFieldsSchema(
+  model: string,
+  config: Record<string, true>,
+  typeMap: TypeMap,
+  schemaBuilder: ReturnType<typeof createSchemaBuilder>,
+): z.ZodObject<any> {
+  const modelFields = typeMap[model]
+  if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+  const fieldSchemas: Record<string, z.ZodTypeAny> = {}
+  for (const [fieldName, value] of Object.entries(config)) {
+    if (value !== true) throw new ShapeError(`Field "${fieldName}" in connect/where config must be true`)
+    const meta = modelFields[fieldName]
+    if (!meta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
+    if (meta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in connect/where`)
+    fieldSchemas[fieldName] = schemaBuilder.buildFieldSchema(model, fieldName).optional()
+  }
+  return z.object(fieldSchemas).strict()
+}
+
+function buildNestedDataSchema(
+  model: string,
+  config: Record<string, true>,
+  typeMap: TypeMap,
+  schemaBuilder: ReturnType<typeof createSchemaBuilder>,
+): z.ZodObject<any> {
+  const modelFields = typeMap[model]
+  if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+
+  const fieldSchemas: Record<string, z.ZodTypeAny> = {}
+  for (const [fieldName, value] of Object.entries(config)) {
+    if (value !== true) throw new ShapeError(`Field "${fieldName}" in nested data config must be true`)
+    const meta = modelFields[fieldName]
+    if (!meta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
+    if (meta.isRelation) throw new ShapeError(`Nested relation writes inside nested data are not supported ("${model}.${fieldName}")`)
+    if (meta.isUpdatedAt) throw new ShapeError(`updatedAt field "${fieldName}" cannot be used in nested data`)
+
+    let fieldSchema = schemaBuilder.buildFieldSchema(model, fieldName)
+    if (!meta.isRequired) {
+      fieldSchema = fieldSchema.nullable().optional()
+    } else if (meta.hasDefault) {
+      fieldSchema = fieldSchema.optional()
+    }
+    fieldSchemas[fieldName] = fieldSchema
+  }
+  return z.object(fieldSchemas).strict()
+}
+
+function buildRelationWriteSchema(
+  model: string,
+  fieldName: string,
+  relatedModelName: string,
+  isList: boolean,
+  config: Record<string, unknown>,
+  typeMap: TypeMap,
+  schemaBuilder: ReturnType<typeof createSchemaBuilder>,
+): z.ZodTypeAny {
+  const relatedFields = typeMap[relatedModelName]
+  if (!relatedFields) throw new ShapeError(`Unknown related model "${relatedModelName}" for field "${model}.${fieldName}"`)
+
+  for (const key of Object.keys(config)) {
+    if (!KNOWN_RELATION_WRITE_OPS.has(key)) {
+      throw new ShapeError(`Unknown relation write operation "${key}" on "${model}.${fieldName}". Allowed: ${[...KNOWN_RELATION_WRITE_OPS].join(', ')}`)
+    }
+  }
+
+  const opSchemas: Record<string, z.ZodTypeAny> = {}
+
+  if (config.connect !== undefined) {
+    if (!isPlainObject(config.connect)) {
+      throw new ShapeError(`connect config on "${model}.${fieldName}" must be an object of field names`)
+    }
+    const connectSchema = buildWhereFieldsSchema(relatedModelName, config.connect as Record<string, true>, typeMap, schemaBuilder)
+    opSchemas['connect'] = isList
+      ? z.union([connectSchema, z.preprocess(coerceToArray, z.array(connectSchema))]).optional()
+      : connectSchema.optional()
+  }
+
+  if (config.connectOrCreate !== undefined) {
+    if (!isPlainObject(config.connectOrCreate)) {
+      throw new ShapeError(`connectOrCreate config on "${model}.${fieldName}" must be an object with "where" and "create"`)
+    }
+    const coc = config.connectOrCreate as Record<string, unknown>
+    if (!coc.where || !isPlainObject(coc.where)) {
+      throw new ShapeError(`connectOrCreate on "${model}.${fieldName}" requires "where" object`)
+    }
+    if (!coc.create || !isPlainObject(coc.create)) {
+      throw new ShapeError(`connectOrCreate on "${model}.${fieldName}" requires "create" object`)
+    }
+    const whereSchema = buildWhereFieldsSchema(relatedModelName, coc.where as Record<string, true>, typeMap, schemaBuilder)
+    const createSchema = buildNestedDataSchema(relatedModelName, coc.create as Record<string, true>, typeMap, schemaBuilder)
+    const cocSchema = z.object({ where: whereSchema, create: createSchema }).strict()
+    opSchemas['connectOrCreate'] = isList
+      ? z.union([cocSchema, z.preprocess(coerceToArray, z.array(cocSchema))]).optional()
+      : cocSchema.optional()
+  }
+
+  if (config.create !== undefined) {
+    if (!isPlainObject(config.create)) {
+      throw new ShapeError(`create config on "${model}.${fieldName}" must be an object of field names`)
+    }
+    const createSchema = buildNestedDataSchema(relatedModelName, config.create as Record<string, true>, typeMap, schemaBuilder)
+    opSchemas['create'] = isList
+      ? z.union([createSchema, z.preprocess(coerceToArray, z.array(createSchema))]).optional()
+      : createSchema.optional()
+  }
+
+  if (config.createMany !== undefined) {
+    if (!isList) {
+      throw new ShapeError(`createMany is only valid on to-many relations ("${model}.${fieldName}")`)
+    }
+    if (!isPlainObject(config.createMany)) {
+      throw new ShapeError(`createMany config on "${model}.${fieldName}" must be an object`)
+    }
+    const cmConfig = config.createMany as Record<string, unknown>
+    if (!cmConfig.data || !isPlainObject(cmConfig.data)) {
+      throw new ShapeError(`createMany on "${model}.${fieldName}" requires "data" object`)
+    }
+    const dataSchema = buildNestedDataSchema(relatedModelName, cmConfig.data as Record<string, true>, typeMap, schemaBuilder)
+    const cmSchemaFields: Record<string, z.ZodTypeAny> = {
+      data: z.preprocess(coerceToArray, z.array(dataSchema)),
+    }
+    if ('skipDuplicates' in cmConfig) {
+      cmSchemaFields['skipDuplicates'] = z.boolean().optional()
+    }
+    opSchemas['createMany'] = z.object(cmSchemaFields).strict().optional()
+  }
+
+  if (config.disconnect !== undefined) {
+    if (config.disconnect === true) {
+      if (isList) {
+        throw new ShapeError(`disconnect on to-many relation "${model}.${fieldName}" requires field config, not true`)
+      }
+      opSchemas['disconnect'] = z.literal(true).optional()
+    } else if (isPlainObject(config.disconnect)) {
+      const disconnectSchema = buildWhereFieldsSchema(relatedModelName, config.disconnect as Record<string, true>, typeMap, schemaBuilder)
+      opSchemas['disconnect'] = isList
+        ? z.union([disconnectSchema, z.preprocess(coerceToArray, z.array(disconnectSchema))]).optional()
+        : disconnectSchema.optional()
+    } else {
+      throw new ShapeError(`disconnect config on "${model}.${fieldName}" must be true (to-one) or an object of field names`)
+    }
+  }
+
+  if (config.delete !== undefined) {
+    if (config.delete === true) {
+      if (isList) {
+        throw new ShapeError(`delete on to-many relation "${model}.${fieldName}" requires field config, not true`)
+      }
+      opSchemas['delete'] = z.literal(true).optional()
+    } else if (isPlainObject(config.delete)) {
+      const deleteSchema = buildWhereFieldsSchema(relatedModelName, config.delete as Record<string, true>, typeMap, schemaBuilder)
+      opSchemas['delete'] = isList
+        ? z.union([deleteSchema, z.preprocess(coerceToArray, z.array(deleteSchema))]).optional()
+        : deleteSchema.optional()
+    } else {
+      throw new ShapeError(`delete config on "${model}.${fieldName}" must be true (to-one) or an object of field names`)
+    }
+  }
+
+  if (config.set !== undefined) {
+    if (!isList) {
+      throw new ShapeError(`set is only valid on to-many relations ("${model}.${fieldName}")`)
+    }
+    if (!isPlainObject(config.set)) {
+      throw new ShapeError(`set config on "${model}.${fieldName}" must be an object of field names`)
+    }
+    const setSchema = buildWhereFieldsSchema(relatedModelName, config.set as Record<string, true>, typeMap, schemaBuilder)
+    opSchemas['set'] = z.preprocess(coerceToArray, z.array(setSchema)).optional()
+  }
+
+  if (config.update !== undefined) {
+    if (!isPlainObject(config.update)) {
+      throw new ShapeError(`update config on "${model}.${fieldName}" must be an object`)
+    }
+    const updateConfig = config.update as Record<string, unknown>
+    if (isList) {
+      if (!updateConfig.where || !isPlainObject(updateConfig.where)) {
+        throw new ShapeError(`update on to-many "${model}.${fieldName}" requires "where" object`)
+      }
+      if (!updateConfig.data || !isPlainObject(updateConfig.data)) {
+        throw new ShapeError(`update on to-many "${model}.${fieldName}" requires "data" object`)
+      }
+      const whereSchema = buildWhereFieldsSchema(relatedModelName, updateConfig.where as Record<string, true>, typeMap, schemaBuilder)
+      const dataSchema = buildNestedDataSchema(relatedModelName, updateConfig.data as Record<string, true>, typeMap, schemaBuilder)
+      const updateSchema = z.object({ where: whereSchema, data: dataSchema }).strict()
+      opSchemas['update'] = z.union([updateSchema, z.preprocess(coerceToArray, z.array(updateSchema))]).optional()
+    } else {
+      const dataSchema = buildNestedDataSchema(relatedModelName, updateConfig as Record<string, true>, typeMap, schemaBuilder)
+      opSchemas['update'] = dataSchema.optional()
+    }
+  }
+
+  if (config.upsert !== undefined) {
+    if (!isPlainObject(config.upsert)) {
+      throw new ShapeError(`upsert config on "${model}.${fieldName}" must be an object`)
+    }
+    const upsertConfig = config.upsert as Record<string, unknown>
+    if (!upsertConfig.where || !isPlainObject(upsertConfig.where)) {
+      throw new ShapeError(`upsert on "${model}.${fieldName}" requires "where" object`)
+    }
+    if (!upsertConfig.create || !isPlainObject(upsertConfig.create)) {
+      throw new ShapeError(`upsert on "${model}.${fieldName}" requires "create" object`)
+    }
+    if (!upsertConfig.update || !isPlainObject(upsertConfig.update)) {
+      throw new ShapeError(`upsert on "${model}.${fieldName}" requires "update" object`)
+    }
+    const whereSchema = buildWhereFieldsSchema(relatedModelName, upsertConfig.where as Record<string, true>, typeMap, schemaBuilder)
+    const createSchema = buildNestedDataSchema(relatedModelName, upsertConfig.create as Record<string, true>, typeMap, schemaBuilder)
+    const updateSchema = buildNestedDataSchema(relatedModelName, upsertConfig.update as Record<string, true>, typeMap, schemaBuilder)
+    const upsertSchema = z.object({ where: whereSchema, create: createSchema, update: updateSchema }).strict()
+    opSchemas['upsert'] = isList
+      ? z.union([upsertSchema, z.preprocess(coerceToArray, z.array(upsertSchema))]).optional()
+      : upsertSchema.optional()
+  }
+
+  if (config.updateMany !== undefined) {
+    if (!isList) {
+      throw new ShapeError(`updateMany is only valid on to-many relations ("${model}.${fieldName}")`)
+    }
+    if (!isPlainObject(config.updateMany)) {
+      throw new ShapeError(`updateMany config on "${model}.${fieldName}" must be an object`)
+    }
+    const umConfig = config.updateMany as Record<string, unknown>
+    if (!umConfig.where || !isPlainObject(umConfig.where)) {
+      throw new ShapeError(`updateMany on "${model}.${fieldName}" requires "where" object`)
+    }
+    if (!umConfig.data || !isPlainObject(umConfig.data)) {
+      throw new ShapeError(`updateMany on "${model}.${fieldName}" requires "data" object`)
+    }
+    const whereSchema = buildWhereFieldsSchema(relatedModelName, umConfig.where as Record<string, true>, typeMap, schemaBuilder)
+    const dataSchema = buildNestedDataSchema(relatedModelName, umConfig.data as Record<string, true>, typeMap, schemaBuilder)
+    const umSchema = z.object({ where: whereSchema, data: dataSchema }).strict()
+    opSchemas['updateMany'] = z.union([umSchema, z.preprocess(coerceToArray, z.array(umSchema))]).optional()
+  }
+
+  if (config.deleteMany !== undefined) {
+    if (!isList) {
+      throw new ShapeError(`deleteMany is only valid on to-many relations ("${model}.${fieldName}")`)
+    }
+    if (!isPlainObject(config.deleteMany)) {
+      throw new ShapeError(`deleteMany config on "${model}.${fieldName}" must be an object`)
+    }
+    const dmConfig = config.deleteMany as Record<string, unknown>
+    if (!dmConfig.where || !isPlainObject(dmConfig.where)) {
+      throw new ShapeError(`deleteMany on "${model}.${fieldName}" requires "where" object`)
+    }
+    const whereSchema = buildWhereFieldsSchema(relatedModelName, dmConfig.where as Record<string, true>, typeMap, schemaBuilder)
+    const dmSchema = z.object({ where: whereSchema }).strict()
+    opSchemas['deleteMany'] = z.union([dmSchema, z.preprocess(coerceToArray, z.array(dmSchema))]).optional()
+  }
+
+  return z.object(opSchemas).strict()
 }
 
 export function buildDataSchema(
@@ -105,7 +395,19 @@ export function buildDataSchema(
   for (const [fieldName, value] of Object.entries(dataConfig)) {
     const fieldMeta = modelFields[fieldName]
     if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
-    if (fieldMeta.isRelation) throw new ShapeError(`Relation field "${fieldName}" cannot be used in data shape`)
+
+    if (fieldMeta.isRelation) {
+      if (!isPlainObject(value)) {
+        throw new ShapeError(`Relation field "${fieldName}" on model "${model}" requires a relation write config object`)
+      }
+      schemaMap[fieldName] = buildRelationWriteSchema(
+        model, fieldName, fieldMeta.type, fieldMeta.isList,
+        value as Record<string, unknown>,
+        typeMap, schemaBuilder,
+      ).optional()
+      continue
+    }
+
     if (fieldMeta.isUpdatedAt) throw new ShapeError(`updatedAt field "${fieldName}" cannot be used in data shape`)
 
     if (typeof value === 'function') {

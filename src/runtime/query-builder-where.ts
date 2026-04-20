@@ -520,8 +520,7 @@ export function createWhereBuilder(
           enumMap,
           scalarBase,
         );
-        const shorthand = equalsBase.transform((v: unknown) => ({ equals: v }));
-        fieldSchemas[fieldName] = z.union([refined, shorthand]).optional();
+        fieldSchemas[fieldName] = z.union([refined, equalsBase]).optional();
       } else {
         fieldSchemas[fieldName] = refined.optional();
       }

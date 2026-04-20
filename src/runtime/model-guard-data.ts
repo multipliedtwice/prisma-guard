@@ -550,11 +550,6 @@ function buildRelationWriteSchema(
       );
     }
     const upsertConfig = config.upsert as Record<string, unknown>;
-    if (!upsertConfig.where || !isPlainObject(upsertConfig.where)) {
-      throw new ShapeError(
-        `upsert on "${model}.${fieldName}" requires "where" object`,
-      );
-    }
     if (!upsertConfig.create || !isPlainObject(upsertConfig.create)) {
       throw new ShapeError(
         `upsert on "${model}.${fieldName}" requires "create" object`,
@@ -565,12 +560,6 @@ function buildRelationWriteSchema(
         `upsert on "${model}.${fieldName}" requires "update" object`,
       );
     }
-    const whereSchema = buildWhereFieldsSchema(
-      relatedModelName,
-      upsertConfig.where as Record<string, true>,
-      typeMap,
-      schemaBuilder,
-    );
     const createSchema = buildNestedDataSchema(
       relatedModelName,
       upsertConfig.create as Record<string, true>,
@@ -583,21 +572,55 @@ function buildRelationWriteSchema(
       typeMap,
       schemaBuilder,
     );
-    const upsertSchema = z
-      .object({
-        where: whereSchema,
-        create: createSchema,
-        update: updateSchema,
-      })
-      .strict();
-    opSchemas["upsert"] = isList
-      ? z
-          .union([
-            upsertSchema,
-            z.preprocess(coerceToArray, z.array(upsertSchema)),
-          ])
-          .optional()
-      : upsertSchema.optional();
+
+    if (isList) {
+      if (!upsertConfig.where || !isPlainObject(upsertConfig.where)) {
+        throw new ShapeError(
+          `upsert on to-many "${model}.${fieldName}" requires "where" object`,
+        );
+      }
+      const whereSchema = buildWhereFieldsSchema(
+        relatedModelName,
+        upsertConfig.where as Record<string, true>,
+        typeMap,
+        schemaBuilder,
+      );
+      const upsertSchema = z
+        .object({
+          where: whereSchema,
+          create: createSchema,
+          update: updateSchema,
+        })
+        .strict();
+      opSchemas["upsert"] = z
+        .union([
+          upsertSchema,
+          z.preprocess(coerceToArray, z.array(upsertSchema)),
+        ])
+        .optional();
+    } else {
+      if (upsertConfig.where) {
+        const whereSchema = buildWhereFieldsSchema(
+          relatedModelName,
+          upsertConfig.where as Record<string, true>,
+          typeMap,
+          schemaBuilder,
+        );
+        const upsertSchema = z
+          .object({
+            where: whereSchema,
+            create: createSchema,
+            update: updateSchema,
+          })
+          .strict();
+        opSchemas["upsert"] = upsertSchema.optional();
+      } else {
+        const upsertSchema = z
+          .object({ create: createSchema, update: updateSchema })
+          .strict();
+        opSchemas["upsert"] = upsertSchema.optional();
+      }
+    }
   }
 
   if (config.updateMany !== undefined) {

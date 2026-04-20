@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.15.0...v1.16.0) (2026-04-20)
+
+
+### Features
+
+* **scalar-base.ts:** enhance scalar type handling with string and number transformations for String, Int, and Float ([f4c10cb](https://github.com/multipliedtwice/prisma-guard/commit/f4c10cbbf7a0d2a037589fca6c0f233a59c12555))
+
 # [1.15.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.14.1...v1.15.0) (2026-04-20)
 
 

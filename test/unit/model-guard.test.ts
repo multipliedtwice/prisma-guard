@@ -566,7 +566,7 @@ describe("model-guard", () => {
 
       expect(calls.update.length).toBe(1);
       expect(calls.update[0].data).toEqual({ title: "Updated" });
-      expect(calls.update[0].where).toEqual({ id: { equals: "abc" } });
+      expect(calls.update[0].where).toEqual({ id: "abc" });
     });
 
     it("update rejects missing data shape", () => {
@@ -891,7 +891,7 @@ describe("model-guard", () => {
       guarded.delete({ where: { id: { equals: "abc" } } });
 
       expect(calls.delete.length).toBe(1);
-      expect(calls.delete[0].where).toEqual({ id: { equals: "abc" } });
+      expect(calls.delete[0].where).toEqual({ id: "abc" });
     });
 
     it("delete rejects data in shape", () => {

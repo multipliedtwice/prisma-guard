@@ -1,6 +1,6 @@
 {
   "name": "prisma-guard",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "description": "Prisma generator + runtime for input validation, query shape enforcement, and row-level tenant isolation",
   "license": "MIT",
   "type": "module",

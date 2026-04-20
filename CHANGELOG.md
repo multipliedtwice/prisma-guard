@@ -1,3 +1,15 @@
+# [1.18.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.17.0...v1.18.0) (2026-04-20)
+
+
+### Bug Fixes
+
+* **model-guard.test.ts:** update test assertions to match expected data shape for id to simplify the comparison logic ([36825e7](https://github.com/multipliedtwice/prisma-guard/commit/36825e752508464b73912c828899d6ce0824a48e))
+
+
+### Features
+
+* **model-guard.ts:** add normalizeUniqueWhere function to simplify unique where conditions and improve code readability ([afac21b](https://github.com/multipliedtwice/prisma-guard/commit/afac21b43a59675fe5bbaa0ce5d71bbbdb03420f))
+
 # [1.17.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.16.0...v1.17.0) (2026-04-20)
 
 

@@ -1,28 +1,50 @@
-import { z } from 'zod'
-import type { TypeMap, EnumMap, ZodChains, ZodDefaults, InputOpts, ModelOpts, InputSchema } from '../shared/types.js'
-import { ShapeError } from '../shared/errors.js'
-import { createBaseType } from './zod-type-map.js'
-import type { ScalarBaseMap } from '../shared/scalar-base.js'
-import { schemaProducesValueForUndefined, isZodSchema } from '../shared/utils.js'
+import { z } from "zod";
+import type {
+  TypeMap,
+  EnumMap,
+  ZodChains,
+  ZodDefaults,
+  InputOpts,
+  ModelOpts,
+  InputSchema,
+} from "../shared/types.js";
+import { ShapeError } from "../shared/errors.js";
+import { createBaseType } from "./zod-type-map.js";
+import {
+  wrapWithInputCoercion,
+  type ScalarBaseMap,
+} from "../shared/scalar-base.js";
+import {
+  schemaProducesValueForUndefined,
+  isZodSchema,
+} from "../shared/utils.js";
 
-const DEFAULT_MAX_CACHE = 500
-const DEFAULT_MAX_DEPTH = 5
+const DEFAULT_MAX_CACHE = 500;
+const DEFAULT_MAX_DEPTH = 5;
 
-function lruGet(cache: Map<string, z.ZodTypeAny>, key: string): z.ZodTypeAny | undefined {
-  const value = cache.get(key)
+function lruGet(
+  cache: Map<string, z.ZodTypeAny>,
+  key: string,
+): z.ZodTypeAny | undefined {
+  const value = cache.get(key);
   if (value !== undefined) {
-    cache.delete(key)
-    cache.set(key, value)
+    cache.delete(key);
+    cache.set(key, value);
   }
-  return value
+  return value;
 }
 
-function lruSet(cache: Map<string, z.ZodTypeAny>, key: string, value: z.ZodTypeAny, maxSize: number): void {
-  if (cache.has(key)) cache.delete(key)
-  cache.set(key, value)
+function lruSet(
+  cache: Map<string, z.ZodTypeAny>,
+  key: string,
+  value: z.ZodTypeAny,
+  maxSize: number,
+): void {
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
   if (cache.size > maxSize) {
-    const oldest = cache.keys().next().value
-    if (oldest !== undefined) cache.delete(oldest)
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
   }
 }
 
@@ -33,148 +55,169 @@ export function createSchemaBuilder(
   scalarBase: ScalarBaseMap,
   zodDefaults: ZodDefaults,
 ) {
-  const chainCache = new Map<string, z.ZodTypeAny>()
+  const chainCache = new Map<string, z.ZodTypeAny>();
 
   function buildFieldSchema(model: string, field: string): z.ZodTypeAny {
-    const cacheKey = `${model}.${field}`
+    const cacheKey = `${model}.${field}`;
 
-    const cached = lruGet(chainCache, cacheKey)
-    if (cached) return cached
+    const cached = lruGet(chainCache, cacheKey);
+    if (cached) return cached;
 
-    const modelFields = typeMap[model]
-    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+    const modelFields = typeMap[model];
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
-    const fieldMeta = modelFields[field]
-    if (!fieldMeta) throw new ShapeError(`Unknown field "${field}" on model "${model}"`)
+    const fieldMeta = modelFields[field];
+    if (!fieldMeta)
+      throw new ShapeError(`Unknown field "${field}" on model "${model}"`);
 
-    const base = createBaseType(fieldMeta, enumMap, scalarBase)
+    const base = createBaseType(fieldMeta, enumMap, scalarBase);
 
-    let result = base
-    const chainFn = zodChains[model]?.[field]
+    let result = base;
+    const chainFn = zodChains[model]?.[field];
     if (chainFn) {
       try {
-        result = chainFn(base)
+        result = chainFn(base);
       } catch (err: any) {
         throw new ShapeError(
           `Invalid @zod directive on ${model}.${field} (${fieldMeta.type}): ${err.message}`,
           { cause: err },
-        )
+        );
       }
     }
 
-    lruSet(chainCache, cacheKey, result, DEFAULT_MAX_CACHE)
-    return result
+    if (
+      !fieldMeta.isEnum &&
+      !fieldMeta.isRelation &&
+      !fieldMeta.isUnsupported
+    ) {
+      result = wrapWithInputCoercion(fieldMeta.type, fieldMeta.isList, result);
+    }
+
+    lruSet(chainCache, cacheKey, result, DEFAULT_MAX_CACHE);
+    return result;
   }
 
   function buildBaseFieldSchema(model: string, field: string): z.ZodTypeAny {
-    const modelFields = typeMap[model]
-    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+    const modelFields = typeMap[model];
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
-    const fieldMeta = modelFields[field]
-    if (!fieldMeta) throw new ShapeError(`Unknown field "${field}" on model "${model}"`)
+    const fieldMeta = modelFields[field];
+    if (!fieldMeta)
+      throw new ShapeError(`Unknown field "${field}" on model "${model}"`);
 
-    return createBaseType(fieldMeta, enumMap, scalarBase)
+    return createBaseType(fieldMeta, enumMap, scalarBase);
   }
 
   function buildInputSchema(model: string, opts: InputOpts): InputSchema {
     if (opts.pick && opts.omit) {
-      throw new ShapeError('InputOpts cannot define both "pick" and "omit"')
+      throw new ShapeError('InputOpts cannot define both "pick" and "omit"');
     }
 
-    const mode = opts.mode ?? 'create'
-    const allowNull = opts.allowNull ?? true
+    const mode = opts.mode ?? "create";
+    const allowNull = opts.allowNull ?? true;
 
-    const modelFields = typeMap[model]
-    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+    const modelFields = typeMap[model];
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
-    const zodDefaultFields = zodDefaults[model]
-    const zodDefaultSet = zodDefaultFields ? new Set(zodDefaultFields) : undefined
+    const zodDefaultFields = zodDefaults[model];
+    const zodDefaultSet = zodDefaultFields
+      ? new Set(zodDefaultFields)
+      : undefined;
 
-    let fieldNames = Object.keys(modelFields).filter(name => {
-      const meta = modelFields[name]
-      return !meta.isRelation && !meta.isUpdatedAt
-    })
+    let fieldNames = Object.keys(modelFields).filter((name) => {
+      const meta = modelFields[name];
+      return !meta.isRelation && !meta.isUpdatedAt;
+    });
 
     if (opts.pick) {
       for (const name of opts.pick) {
-        if (!modelFields[name]) throw new ShapeError(`Unknown field "${name}" on model "${model}"`)
-        if (modelFields[name].isRelation) throw new ShapeError(`Field "${name}" cannot be used in input schema (relation field)`)
-        if (modelFields[name].isUpdatedAt) throw new ShapeError(`Field "${name}" cannot be used in input schema (updatedAt field)`)
+        if (!modelFields[name])
+          throw new ShapeError(`Unknown field "${name}" on model "${model}"`);
+        if (modelFields[name].isRelation)
+          throw new ShapeError(
+            `Field "${name}" cannot be used in input schema (relation field)`,
+          );
+        if (modelFields[name].isUpdatedAt)
+          throw new ShapeError(
+            `Field "${name}" cannot be used in input schema (updatedAt field)`,
+          );
       }
-      fieldNames = fieldNames.filter(n => opts.pick!.includes(n))
+      fieldNames = fieldNames.filter((n) => opts.pick!.includes(n));
     } else if (opts.omit) {
       for (const name of opts.omit) {
-        if (!modelFields[name]) throw new ShapeError(`Unknown field "${name}" on model "${model}"`)
+        if (!modelFields[name])
+          throw new ShapeError(`Unknown field "${name}" on model "${model}"`);
       }
-      fieldNames = fieldNames.filter(n => !opts.omit!.includes(n))
+      fieldNames = fieldNames.filter((n) => !opts.omit!.includes(n));
     }
 
-    const schemaMap: Record<string, z.ZodTypeAny> = {}
+    const schemaMap: Record<string, z.ZodTypeAny> = {};
 
     for (const name of fieldNames) {
-      const fieldMeta = modelFields[name]
-      let fieldSchema: z.ZodTypeAny
-      let handlesUndefined: boolean
+      const fieldMeta = modelFields[name];
+      let fieldSchema: z.ZodTypeAny;
+      let handlesUndefined: boolean;
 
       if (opts.refine?.[name]) {
-        let refined: unknown
+        let refined: unknown;
         try {
-          refined = opts.refine[name](buildBaseFieldSchema(model, name))
+          refined = opts.refine[name](buildBaseFieldSchema(model, name));
         } catch (err: any) {
           throw new ShapeError(
             `Refine function for "${model}.${name}" threw: ${err.message}`,
             { cause: err },
-          )
+          );
         }
         if (!isZodSchema(refined)) {
           throw new ShapeError(
             `Refine function for "${model}.${name}" must return a Zod schema`,
-          )
+          );
         }
-        fieldSchema = refined
-        handlesUndefined = schemaProducesValueForUndefined(fieldSchema)
+        fieldSchema = refined;
+        handlesUndefined = schemaProducesValueForUndefined(fieldSchema);
       } else {
-        fieldSchema = buildFieldSchema(model, name)
-        handlesUndefined = zodDefaultSet !== undefined && zodDefaultSet.has(name)
+        fieldSchema = buildFieldSchema(model, name);
+        handlesUndefined =
+          zodDefaultSet !== undefined && zodDefaultSet.has(name);
       }
 
-      if (mode === 'create') {
+      if (mode === "create") {
         if (!fieldMeta.isRequired) {
           if (handlesUndefined) {
-            fieldSchema = allowNull ? fieldSchema.nullable() : fieldSchema
+            fieldSchema = allowNull ? fieldSchema.nullable() : fieldSchema;
           } else {
             fieldSchema = allowNull
               ? fieldSchema.nullable().optional()
-              : fieldSchema.optional()
+              : fieldSchema.optional();
           }
         } else if (fieldMeta.hasDefault) {
           if (!handlesUndefined) {
-            fieldSchema = fieldSchema.optional()
+            fieldSchema = fieldSchema.optional();
           }
         }
       } else {
         if (!fieldMeta.isRequired && allowNull) {
-          fieldSchema = fieldSchema.nullable().optional()
+          fieldSchema = fieldSchema.nullable().optional();
         } else {
-          fieldSchema = fieldSchema.optional()
+          fieldSchema = fieldSchema.optional();
         }
       }
 
-      schemaMap[name] = fieldSchema
+      schemaMap[name] = fieldSchema;
     }
 
-    let schema = z.object(schemaMap).strict()
+    let schema = z.object(schemaMap).strict();
 
     if (opts.partial) {
-      schema = schema.partial() as any
+      schema = schema.partial() as any;
     }
 
     return {
       schema,
       parse(data: unknown): Record<string, unknown> {
-        return schema.parse(data) as Record<string, unknown>
+        return schema.parse(data) as Record<string, unknown>;
       },
-    }
+    };
   }
 
   function buildModelSchema(
@@ -184,107 +227,133 @@ export function createSchemaBuilder(
     maxDepth?: number,
   ): z.ZodObject<any> {
     if (opts.pick && opts.omit) {
-      throw new ShapeError('ModelOpts cannot define both "pick" and "omit"')
+      throw new ShapeError('ModelOpts cannot define both "pick" and "omit"');
     }
 
-    const effectiveMaxDepth = maxDepth ?? opts.maxDepth ?? DEFAULT_MAX_DEPTH
+    const effectiveMaxDepth = maxDepth ?? opts.maxDepth ?? DEFAULT_MAX_DEPTH;
     if (depth > effectiveMaxDepth) {
-      throw new ShapeError(`Maximum include depth (${effectiveMaxDepth}) exceeded`)
+      throw new ShapeError(
+        `Maximum include depth (${effectiveMaxDepth}) exceeded`,
+      );
     }
 
-    const modelFields = typeMap[model]
-    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
+    const modelFields = typeMap[model];
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
-    const includeKeys = new Set(Object.keys(opts.include ?? {}))
+    const includeKeys = new Set(Object.keys(opts.include ?? {}));
 
     if (opts.pick) {
       for (const name of opts.pick) {
-        if (!modelFields[name]) throw new ShapeError(`Unknown field "${name}" on model "${model}"`)
+        if (!modelFields[name])
+          throw new ShapeError(`Unknown field "${name}" on model "${model}"`);
         if (modelFields[name].isRelation && !includeKeys.has(name)) {
-          throw new ShapeError(`Field "${name}" is a relation on model "${model}". Use include: { ${name}: ... } instead of pick.`)
+          throw new ShapeError(
+            `Field "${name}" is a relation on model "${model}". Use include: { ${name}: ... } instead of pick.`,
+          );
         }
       }
     }
     if (opts.omit) {
       for (const name of opts.omit) {
-        if (!modelFields[name]) throw new ShapeError(`Unknown field "${name}" on model "${model}"`)
+        if (!modelFields[name])
+          throw new ShapeError(`Unknown field "${name}" on model "${model}"`);
       }
     }
 
-    let scalarNames = Object.keys(modelFields).filter(name => {
-      const meta = modelFields[name]
-      return !meta.isRelation
-    })
+    let scalarNames = Object.keys(modelFields).filter((name) => {
+      const meta = modelFields[name];
+      return !meta.isRelation;
+    });
 
     if (opts.pick) {
-      scalarNames = scalarNames.filter(n => opts.pick!.includes(n))
+      scalarNames = scalarNames.filter((n) => opts.pick!.includes(n));
     } else if (opts.omit) {
-      scalarNames = scalarNames.filter(n => !opts.omit!.includes(n))
+      scalarNames = scalarNames.filter((n) => !opts.omit!.includes(n));
     }
 
-    const schemaMap: Record<string, z.ZodTypeAny> = {}
+    const schemaMap: Record<string, z.ZodTypeAny> = {};
 
     for (const name of scalarNames) {
-      const fieldMeta = modelFields[name]
-      let fieldSchema = createBaseType(fieldMeta, enumMap, scalarBase)
+      const fieldMeta = modelFields[name];
+      let fieldSchema = createBaseType(fieldMeta, enumMap, scalarBase);
       if (!fieldMeta.isRequired) {
-        fieldSchema = fieldSchema.nullable()
+        fieldSchema = fieldSchema.nullable();
       }
-      schemaMap[name] = fieldSchema
+      schemaMap[name] = fieldSchema;
     }
 
     for (const [relName, relOpts] of Object.entries(opts.include ?? {})) {
-      const fieldMeta = modelFields[relName]
-      if (!fieldMeta) throw new ShapeError(`Unknown field "${relName}" on model "${model}"`)
-      if (!fieldMeta.isRelation) throw new ShapeError(`Field "${relName}" is not a relation on model "${model}"`)
+      const fieldMeta = modelFields[relName];
+      if (!fieldMeta)
+        throw new ShapeError(`Unknown field "${relName}" on model "${model}"`);
+      if (!fieldMeta.isRelation)
+        throw new ShapeError(
+          `Field "${relName}" is not a relation on model "${model}"`,
+        );
 
-      const relatedModel = fieldMeta.type
+      const relatedModel = fieldMeta.type;
       if (!typeMap[relatedModel]) {
-        throw new ShapeError(`Related model "${relatedModel}" not found in type map`)
+        throw new ShapeError(
+          `Related model "${relatedModel}" not found in type map`,
+        );
       }
       let relSchema: z.ZodTypeAny = buildModelSchema(
         relatedModel,
         relOpts,
         depth + 1,
         effectiveMaxDepth,
-      )
+      );
       if (fieldMeta.isList) {
-        relSchema = z.array(relSchema)
+        relSchema = z.array(relSchema);
       } else if (!fieldMeta.isRequired) {
-        relSchema = relSchema.nullable()
+        relSchema = relSchema.nullable();
       }
-      schemaMap[relName] = relSchema
+      schemaMap[relName] = relSchema;
     }
 
     if (opts._count) {
-      const listRelationNames = Object.keys(modelFields).filter(n =>
-        modelFields[n].isRelation && modelFields[n].isList,
-      )
+      const listRelationNames = Object.keys(modelFields).filter(
+        (n) => modelFields[n].isRelation && modelFields[n].isList,
+      );
 
       if (opts._count === true) {
-        const countFields: Record<string, z.ZodTypeAny> = {}
+        const countFields: Record<string, z.ZodTypeAny> = {};
         for (const relName of listRelationNames) {
-          countFields[relName] = z.number().int().min(0)
+          countFields[relName] = z.number().int().min(0);
         }
-        schemaMap['_count'] = z.object(countFields)
+        schemaMap["_count"] = z.object(countFields);
       } else {
-        const countFields: Record<string, z.ZodTypeAny> = {}
+        const countFields: Record<string, z.ZodTypeAny> = {};
         for (const relName of Object.keys(opts._count)) {
-          if (!modelFields[relName]) throw new ShapeError(`Unknown field "${relName}" on model "${model}" in _count`)
-          if (!modelFields[relName].isRelation) throw new ShapeError(`Field "${relName}" is not a relation on model "${model}" in _count`)
-          if (!modelFields[relName].isList) throw new ShapeError(`Field "${relName}" is a to-one relation on model "${model}" in _count. Only to-many relations support _count.`)
-          countFields[relName] = z.number().int().min(0)
+          if (!modelFields[relName])
+            throw new ShapeError(
+              `Unknown field "${relName}" on model "${model}" in _count`,
+            );
+          if (!modelFields[relName].isRelation)
+            throw new ShapeError(
+              `Field "${relName}" is not a relation on model "${model}" in _count`,
+            );
+          if (!modelFields[relName].isList)
+            throw new ShapeError(
+              `Field "${relName}" is a to-one relation on model "${model}" in _count. Only to-many relations support _count.`,
+            );
+          countFields[relName] = z.number().int().min(0);
         }
-        schemaMap['_count'] = z.object(countFields)
+        schemaMap["_count"] = z.object(countFields);
       }
     }
 
-    let schema = z.object(schemaMap)
+    let schema = z.object(schemaMap);
     if (opts.strict) {
-      schema = schema.strict() as any
+      schema = schema.strict() as any;
     }
-    return schema
+    return schema;
   }
 
-  return { buildFieldSchema, buildBaseFieldSchema, buildInputSchema, buildModelSchema }
+  return {
+    buildFieldSchema,
+    buildBaseFieldSchema,
+    buildInputSchema,
+    buildModelSchema,
+  };
 }

@@ -1,61 +1,93 @@
-import { z } from 'zod'
-import type { FieldMeta, EnumMap } from '../shared/types.js'
-import { ShapeError } from '../shared/errors.js'
-import { coerceToArray } from '../shared/utils.js'
-import type { ScalarBaseMap } from '../shared/scalar-base.js'
+import { z } from "zod";
+import type { FieldMeta, EnumMap } from "../shared/types.js";
+import { ShapeError } from "../shared/errors.js";
+import { coerceToArray } from "../shared/utils.js";
+import {
+  wrapWithInputCoercion,
+  type ScalarBaseMap,
+} from "../shared/scalar-base.js";
 
 const SCALAR_OPERATORS: Record<string, Set<string>> = {
-  String: new Set(['equals', 'not', 'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'gt', 'gte', 'lt', 'lte']),
-  Int: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
-  Float: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
-  Decimal: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
-  BigInt: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
-  Boolean: new Set(['equals', 'not']),
-  DateTime: new Set(['equals', 'not', 'gt', 'gte', 'lt', 'lte', 'in', 'notIn']),
+  String: new Set([
+    "equals",
+    "not",
+    "contains",
+    "startsWith",
+    "endsWith",
+    "in",
+    "notIn",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+  ]),
+  Int: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
+  Float: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
+  Decimal: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
+  BigInt: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
+  Boolean: new Set(["equals", "not"]),
+  DateTime: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
   Bytes: new Set([]),
-}
+};
 
-const SCALAR_LIST_OPERATORS = new Set(['has', 'hasEvery', 'hasSome', 'isEmpty', 'equals'])
+const SCALAR_LIST_OPERATORS = new Set([
+  "has",
+  "hasEvery",
+  "hasSome",
+  "isEmpty",
+  "equals",
+]);
 
-const ENUM_OPERATORS = new Set(['equals', 'not', 'in', 'notIn'])
+const ENUM_OPERATORS = new Set(["equals", "not", "in", "notIn"]);
 
-const NUMERIC_TYPES = new Set(['Int', 'Float', 'Decimal', 'BigInt'])
-const COMPARABLE_TYPES = new Set(['Int', 'Float', 'Decimal', 'BigInt', 'String', 'DateTime'])
+const NUMERIC_TYPES = new Set(["Int", "Float", "Decimal", "BigInt"]);
+const COMPARABLE_TYPES = new Set([
+  "Int",
+  "Float",
+  "Decimal",
+  "BigInt",
+  "String",
+  "DateTime",
+]);
 
-export { NUMERIC_TYPES, COMPARABLE_TYPES }
+export { NUMERIC_TYPES, COMPARABLE_TYPES };
 
 export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
-  if (fieldMeta.isList) return [...SCALAR_LIST_OPERATORS]
-  if (fieldMeta.isEnum) return [...ENUM_OPERATORS]
-  const ops = SCALAR_OPERATORS[fieldMeta.type]
-  if (!ops) return []
-  return [...ops]
+  if (fieldMeta.isList) return [...SCALAR_LIST_OPERATORS];
+  if (fieldMeta.isEnum) return [...ENUM_OPERATORS];
+  const ops = SCALAR_OPERATORS[fieldMeta.type];
+  if (!ops) return [];
+  return [...ops];
 }
 
-export function createBaseType(fieldMeta: FieldMeta, enumMap: EnumMap, scalarBase: ScalarBaseMap): z.ZodTypeAny {
-  let base: z.ZodTypeAny
+export function createBaseType(
+  fieldMeta: FieldMeta,
+  enumMap: EnumMap,
+  scalarBase: ScalarBaseMap,
+): z.ZodTypeAny {
+  let base: z.ZodTypeAny;
 
   if (fieldMeta.isUnsupported) {
-    base = z.unknown()
+    base = z.unknown();
   } else if (fieldMeta.isEnum) {
-    const values = enumMap[fieldMeta.type]
+    const values = enumMap[fieldMeta.type];
     if (!values || values.length === 0) {
-      throw new ShapeError(`Unknown enum: ${fieldMeta.type}`)
+      throw new ShapeError(`Unknown enum: ${fieldMeta.type}`);
     }
-    base = z.enum(values as unknown as [string, ...string[]])
+    base = z.enum(values as unknown as [string, ...string[]]);
   } else {
-    const factory = scalarBase[fieldMeta.type]
+    const factory = scalarBase[fieldMeta.type];
     if (!factory) {
-      throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`)
+      throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`);
     }
-    base = factory()
+    base = factory();
   }
 
   if (fieldMeta.isList) {
-    base = z.array(base)
+    base = z.array(base);
   }
 
-  return base
+  return base;
 }
 
 export function createScalarListOperatorSchema(
@@ -65,28 +97,30 @@ export function createScalarListOperatorSchema(
   scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
   if (!SCALAR_LIST_OPERATORS.has(operator)) {
-    throw new ShapeError(`Operator "${operator}" not supported for scalar list fields`)
+    throw new ShapeError(
+      `Operator "${operator}" not supported for scalar list fields`,
+    );
   }
 
-  if (operator === 'isEmpty') {
-    return z.boolean()
+  if (operator === "isEmpty") {
+    return z.boolean();
   }
 
-  const itemMeta: FieldMeta = { ...fieldMeta, isList: false }
-  const itemBase = createBaseType(itemMeta, enumMap, scalarBase)
+  const itemMeta: FieldMeta = { ...fieldMeta, isList: false };
+  const itemBase = createBaseType(itemMeta, enumMap, scalarBase);
 
-  if (operator === 'has') {
-    return !fieldMeta.isRequired ? z.union([itemBase, z.null()]) : itemBase
+  if (operator === "has") {
+    return !fieldMeta.isRequired ? z.union([itemBase, z.null()]) : itemBase;
   }
 
-  if (operator === 'equals') {
-    const arrSchema = z.array(itemBase)
+  if (operator === "equals") {
+    const arrSchema = z.array(itemBase);
     return fieldMeta.isRequired
       ? z.preprocess(coerceToArray, arrSchema)
-      : z.union([z.preprocess(coerceToArray, arrSchema), z.null()])
+      : z.union([z.preprocess(coerceToArray, arrSchema), z.null()]);
   }
 
-  return z.preprocess(coerceToArray, z.array(itemBase))
+  return z.preprocess(coerceToArray, z.array(itemBase));
 }
 
 export function createOperatorSchema(
@@ -96,53 +130,67 @@ export function createOperatorSchema(
   scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
   if (fieldMeta.isList) {
-    return createScalarListOperatorSchema(fieldMeta, operator, enumMap, scalarBase)
+    return createScalarListOperatorSchema(
+      fieldMeta,
+      operator,
+      enumMap,
+      scalarBase,
+    );
   }
 
   if (fieldMeta.isEnum) {
-    const values = enumMap[fieldMeta.type]
+    const values = enumMap[fieldMeta.type];
     if (!values || values.length === 0) {
-      throw new ShapeError(`Unknown enum: ${fieldMeta.type}`)
+      throw new ShapeError(`Unknown enum: ${fieldMeta.type}`);
     }
     if (!ENUM_OPERATORS.has(operator)) {
-      throw new ShapeError(`Operator "${operator}" not supported for enum fields`)
+      throw new ShapeError(
+        `Operator "${operator}" not supported for enum fields`,
+      );
     }
-    const enumSchema = z.enum(values as unknown as [string, ...string[]])
-    if (operator === 'equals' || operator === 'not') {
-      return !fieldMeta.isRequired ? z.union([enumSchema, z.null()]) : enumSchema
+    const enumSchema = z.enum(values as unknown as [string, ...string[]]);
+    if (operator === "equals" || operator === "not") {
+      return !fieldMeta.isRequired
+        ? z.union([enumSchema, z.null()])
+        : enumSchema;
     }
     const itemSchema = !fieldMeta.isRequired
       ? z.union([enumSchema, z.null()])
-      : enumSchema
-    return z.preprocess(coerceToArray, z.array(itemSchema))
+      : enumSchema;
+    return z.preprocess(coerceToArray, z.array(itemSchema));
   }
 
-  const supportedOps = SCALAR_OPERATORS[fieldMeta.type]
+  const supportedOps = SCALAR_OPERATORS[fieldMeta.type];
   if (!supportedOps) {
-    throw new ShapeError(`Unknown scalar type for operator: ${fieldMeta.type}`)
+    throw new ShapeError(`Unknown scalar type for operator: ${fieldMeta.type}`);
   }
   if (supportedOps.size === 0) {
-    throw new ShapeError(`Type "${fieldMeta.type}" does not support filter operators`)
+    throw new ShapeError(
+      `Type "${fieldMeta.type}" does not support filter operators`,
+    );
   }
   if (!supportedOps.has(operator)) {
-    throw new ShapeError(`Operator "${operator}" not supported for type "${fieldMeta.type}"`)
+    throw new ShapeError(
+      `Operator "${operator}" not supported for type "${fieldMeta.type}"`,
+    );
   }
 
-  const factory = scalarBase[fieldMeta.type]
+  const factory = scalarBase[fieldMeta.type];
   if (!factory) {
-    throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`)
+    throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`);
   }
 
-  const scalar = factory()
+  const scalar = factory();
+  const coerced = wrapWithInputCoercion(fieldMeta.type, false, scalar);
 
-  if (operator === 'equals' || operator === 'not') {
-    return !fieldMeta.isRequired ? z.union([scalar, z.null()]) : scalar
+  if (operator === "equals" || operator === "not") {
+    return !fieldMeta.isRequired ? z.union([coerced, z.null()]) : coerced;
   }
-  if (operator === 'in' || operator === 'notIn') {
+  if (operator === "in" || operator === "notIn") {
     const itemSchema = !fieldMeta.isRequired
-      ? z.union([scalar, z.null()])
-      : scalar
-    return z.preprocess(coerceToArray, z.array(itemSchema))
+      ? z.union([coerced, z.null()])
+      : coerced;
+    return z.preprocess(coerceToArray, z.array(itemSchema));
   }
-  return scalar
+  return coerced;
 }

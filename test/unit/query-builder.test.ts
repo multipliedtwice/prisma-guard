@@ -429,12 +429,14 @@ describe("where validation", () => {
     ).toThrow("not supported for to-many relation");
   });
 
-  it("throws on Json field in where", () => {
-    expect(() =>
-      qb().buildQuerySchema("User", "findMany", {
-        where: { data: { equals: true } } as any,
-      }),
-    ).toThrow("Json field");
+  it("supports Json field in where with valid operators", () => {
+    const schema = qb().buildQuerySchema("User", "findMany", {
+      where: { data: { equals: true, array_contains: true } },
+    });
+    const result = schema.parse({
+      where: { data: { array_contains: ["tag1"] } },
+    });
+    expect(result.where).toEqual({ data: { array_contains: ["tag1"] } });
   });
 
   it("throws on unknown field in where", () => {

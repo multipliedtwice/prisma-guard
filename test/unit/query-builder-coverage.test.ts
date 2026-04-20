@@ -728,12 +728,14 @@ describe("query-builder coverage: cursor and orderBy errors", () => {
 describe("query-builder coverage: where errors", () => {
   const qb = makeQb();
 
-  it("throws on Json field in where", () => {
-    expect(() =>
-      qb.buildQuerySchema("User", "findMany", {
-        where: { metadata: { equals: true } },
-      }),
-    ).toThrow(ShapeError);
+  it("supports Json field in where with valid operators", () => {
+    const schema = qb.buildQuerySchema("User", "findMany", {
+      where: { metadata: { equals: true } },
+    });
+    const result = schema.parse({
+      where: { metadata: { equals: { key: "value" } } },
+    });
+    expect(result.where).toEqual({ metadata: { equals: { key: "value" } } });
   });
 
   it("throws on unknown model", () => {

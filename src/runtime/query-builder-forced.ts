@@ -363,12 +363,8 @@ function collectEqualityFields(
     }
     if (combinators.has(key)) continue
     if (typeMap && model && typeMap[model]?.[key]?.isRelation) continue
-    if (value !== null && value !== undefined && !isPlainObject(value) && !Array.isArray(value)) {
-      fields.add(key)
-      continue
-    }
     if (!value || !isPlainObject(value)) continue
-    if (Object.keys(value).every(op => op === 'equals')) {
+    if ('equals' in value) {
       fields.add(key)
     }
   }

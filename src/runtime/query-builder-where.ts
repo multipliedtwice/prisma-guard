@@ -7,7 +7,7 @@ import {
   TO_ONE_RELATION_OPS,
 } from "../shared/constants.js";
 import { isForcedValue } from "../shared/constants.js";
-import { createOperatorSchema } from "./zod-type-map.js";
+import { createOperatorSchema, getSupportedOperators } from "./zod-type-map.js";
 import { isPlainObject, coerceToArray } from "../shared/utils.js";
 import type { WhereForced } from "./query-builder-forced.js";
 import { hasWhereForced, mergeWhereForced } from "./query-builder-forced.js";
@@ -411,15 +411,12 @@ export function createWhereBuilder(
     scalarConditions: Record<string, unknown>,
   ): void {
     if (operators === true) {
-      operators = { equals: true };
-    } else if (
-      operators !== null &&
-      operators !== undefined &&
-      !isPlainObject(operators) &&
-      !Array.isArray(operators)
-    ) {
-      operators = { equals: operators };
+      const supportedOps = getSupportedOperators(fieldMeta);
+      const expanded: Record<string, true> = {};
+      for (const op of supportedOps) expanded[op] = true;
+      operators = expanded;
     }
+
     if (!isPlainObject(operators)) {
       throw new ShapeError(
         `Where config for scalar field "${fieldName}" on model "${model}" must be an object of operators`,

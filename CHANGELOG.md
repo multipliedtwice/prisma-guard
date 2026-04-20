@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.13.0...v1.13.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* improve error message for deleteMany config and enhance schema validation ([31c1a01](https://github.com/multipliedtwice/prisma-guard/commit/31c1a01795bccc5605a139c9ad6e23e24cfb9731))
+
 # [1.13.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.12.0...v1.13.0) (2026-04-20)
 
 

@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.11.0...v1.12.0) (2026-04-20)
+
+
+### Features
+
+* enhance relation handling in data schema with new validation and schema building functions ([5a6d5ed](https://github.com/multipliedtwice/prisma-guard/commit/5a6d5eda023d97f62cbf78954422a3d10c9c1961))
+
 # [1.11.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.10.0...v1.11.0) (2026-04-20)
 
 

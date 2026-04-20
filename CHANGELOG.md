@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.12.0...v1.13.0) (2026-04-20)
+
+
+### Features
+
+* enhance upsert validation logic for to-many and to-one relationships ([3dc6fb1](https://github.com/multipliedtwice/prisma-guard/commit/3dc6fb193fc17d5d06fd77ccd29f944a9c05ce0f))
+
 # [1.12.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.11.0...v1.12.0) (2026-04-20)
 
 

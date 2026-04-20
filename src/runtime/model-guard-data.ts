@@ -673,24 +673,21 @@ function buildRelationWriteSchema(
     }
     if (!isPlainObject(config.deleteMany)) {
       throw new ShapeError(
-        `deleteMany config on "${model}.${fieldName}" must be an object`,
+        `deleteMany config on "${model}.${fieldName}" must be an object of allowed filter fields`,
       );
     }
-    const dmConfig = config.deleteMany as Record<string, unknown>;
-    if (!dmConfig.where || !isPlainObject(dmConfig.where)) {
-      throw new ShapeError(
-        `deleteMany on "${model}.${fieldName}" requires "where" object`,
-      );
-    }
-    const whereSchema = buildWhereFieldsSchema(
+    const filterSchema = buildWhereFieldsSchema(
       relatedModelName,
-      dmConfig.where as Record<string, true>,
+      config.deleteMany as Record<string, true>,
       typeMap,
       schemaBuilder,
     );
-    const dmSchema = z.object({ where: whereSchema }).strict();
     opSchemas["deleteMany"] = z
-      .union([dmSchema, z.preprocess(coerceToArray, z.array(dmSchema))])
+      .union([
+        filterSchema,
+        z.preprocess(coerceToArray, z.array(filterSchema)),
+        z.object({}).strict(),
+      ])
       .optional();
   }
 

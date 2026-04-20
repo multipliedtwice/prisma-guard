@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.18.1...v1.19.0) (2026-04-20)
+
+
+### Features
+
+* **query-builder-where.ts:** enhance operators handling to support boolean and non-object values for better flexibility in query conditions ([f793f8e](https://github.com/multipliedtwice/prisma-guard/commit/f793f8edf68a4f3a2d5da70c6bb0b1bee50172ea))
+
 ## [1.18.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.18.0...v1.18.1) (2026-04-20)
 
 

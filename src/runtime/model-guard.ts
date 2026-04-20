@@ -99,6 +99,25 @@ interface BuiltProjection {
   forcedSelectCountWhere: Record<string, WhereForced>;
 }
 
+function normalizeUniqueWhere(where: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(where)) {
+    if (
+      key !== 'AND' &&
+      key !== 'OR' &&
+      key !== 'NOT' &&
+      isPlainObject(value) &&
+      'equals' in value &&
+      Object.keys(value).length === 1
+    ) {
+      result[key] = value.equals;
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 function buildDefaultSelectInput(
   config: Record<string, true | NestedSelectArgs>,
 ): Record<string, unknown> {
@@ -877,7 +896,7 @@ export function createModelGuardExtension(config: {
           dataSchema,
           method,
         );
-        const where = isUniqueWhere
+        let where = isUniqueWhere
           ? requireWhere(
               resolved.shape,
               resolved.body.where,
@@ -900,6 +919,7 @@ export function createModelGuardExtension(config: {
         }
         if (isUniqueWhere) {
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap);
+          where = normalizeUniqueWhere(where);
         }
 
         const args: Record<string, unknown> = { data, where };
@@ -947,7 +967,7 @@ export function createModelGuardExtension(config: {
           );
         }
         maybeValidateUniqueWhere(modelName, resolved.shape, method);
-        const where = isUniqueWhere
+        let where = isUniqueWhere
           ? requireWhere(
               resolved.shape,
               resolved.body.where,
@@ -970,6 +990,7 @@ export function createModelGuardExtension(config: {
         }
         if (isUniqueWhere) {
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap);
+          where = normalizeUniqueWhere(where);
         }
 
         const args: Record<string, unknown> = { where };
@@ -1066,7 +1087,7 @@ export function createModelGuardExtension(config: {
         validateResolvedUniqueWhere(modelName, where, "upsert", uniqueMap);
 
         const args: Record<string, unknown> = {
-          where,
+          where: normalizeUniqueWhere(where),
           create: createData,
           update: updateData,
         };

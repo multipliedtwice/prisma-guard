@@ -410,6 +410,16 @@ export function createWhereBuilder(
     fieldSchemas: Record<string, z.ZodTypeAny>,
     scalarConditions: Record<string, unknown>,
   ): void {
+    if (operators === true) {
+      operators = { equals: true };
+    } else if (
+      operators !== null &&
+      operators !== undefined &&
+      !isPlainObject(operators) &&
+      !Array.isArray(operators)
+    ) {
+      operators = { equals: operators };
+    }
     if (!isPlainObject(operators)) {
       throw new ShapeError(
         `Where config for scalar field "${fieldName}" on model "${model}" must be an object of operators`,

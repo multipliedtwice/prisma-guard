@@ -81,9 +81,18 @@ function createDecimalFactory(strict: boolean): () => z.ZodTypeAny {
 
 export function createScalarBase(strictDecimal: boolean): ScalarBaseMap {
   return {
-    String: () => z.string(),
-    Int: () => z.number().int(),
-    Float: () => z.number(),
+    String: () => z.union([
+      z.string(),
+      z.number().transform(String),
+    ]),
+    Int: () => z.union([
+      z.number().int(),
+      z.string().regex(/^-?\d+$/).transform(Number),
+    ]),
+    Float: () => z.union([
+      z.number(),
+      z.string().regex(/^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/).transform(Number),
+    ]),
     Decimal: createDecimalFactory(strictDecimal),
     BigInt: () => z.union([
       z.bigint(),

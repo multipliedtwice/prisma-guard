@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.10.0...v1.11.0) (2026-04-20)
+
+
+### Features
+
+* update createWhereBuilder to use equalsBase directly in fieldSchemas ([487d53a](https://github.com/multipliedtwice/prisma-guard/commit/487d53adb19c776f75f4fb2043fccc774d68050c))
+
 # [1.10.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.9.1...v1.10.0) (2026-04-19)
 
 

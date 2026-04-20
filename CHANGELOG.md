@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.14.0...v1.14.1) (2026-04-20)
+
+
+### Bug Fixes
+
+* force version bump ([0637501](https://github.com/multipliedtwice/prisma-guard/commit/06375012d98e03e9ddaf41c905c1937b791d615b))
+
 # [1.14.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.13.1...v1.14.0) (2026-04-20)
 
 

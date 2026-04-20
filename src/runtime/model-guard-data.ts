@@ -441,36 +441,6 @@ function buildRelationWriteSchema(
     }
   }
 
-  if (config.delete !== undefined) {
-    if (config.delete === true) {
-      if (isList) {
-        throw new ShapeError(
-          `delete on to-many relation "${model}.${fieldName}" requires field config, not true`,
-        );
-      }
-      opSchemas["delete"] = z.literal(true).optional();
-    } else if (isPlainObject(config.delete)) {
-      const deleteSchema = buildWhereFieldsSchema(
-        relatedModelName,
-        config.delete as Record<string, true>,
-        typeMap,
-        schemaBuilder,
-      );
-      opSchemas["delete"] = isList
-        ? z
-            .union([
-              deleteSchema,
-              z.preprocess(coerceToArray, z.array(deleteSchema)),
-            ])
-            .optional()
-        : deleteSchema.optional();
-    } else {
-      throw new ShapeError(
-        `delete config on "${model}.${fieldName}" must be true (to-one) or an object of field names`,
-      );
-    }
-  }
-
   if (config.set !== undefined) {
     if (!isList) {
       throw new ShapeError(
@@ -715,8 +685,14 @@ export function buildDataSchema(
 
   for (const [fieldName, value] of Object.entries(dataConfig)) {
     const fieldMeta = modelFields[fieldName];
-    if (!fieldMeta)
+
+    if (!fieldMeta) {
+      if (value === true) {
+        schemaMap[fieldName] = z.unknown().optional();
+        continue;
+      }
       throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`);
+    }
 
     if (fieldMeta.isRelation) {
       if (!isPlainObject(value)) {

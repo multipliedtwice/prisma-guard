@@ -28,6 +28,17 @@ const SCALAR_OPERATORS: Record<string, Set<string>> = {
   Boolean: new Set(["equals", "not"]),
   DateTime: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
   Bytes: new Set([]),
+  Json: new Set([
+    "equals",
+    "not",
+    "path",
+    "string_contains",
+    "string_starts_with",
+    "string_ends_with",
+    "array_contains",
+    "array_starts_with",
+    "array_ends_with",
+  ]),
 };
 
 const SCALAR_LIST_OPERATORS = new Set([
@@ -48,6 +59,18 @@ const COMPARABLE_TYPES = new Set([
   "BigInt",
   "String",
   "DateTime",
+]);
+
+const JSON_STRING_OPERATORS = new Set([
+  "string_contains",
+  "string_starts_with",
+  "string_ends_with",
+]);
+
+const JSON_ARRAY_OPERATORS = new Set([
+  "array_contains",
+  "array_starts_with",
+  "array_ends_with",
 ]);
 
 export { NUMERIC_TYPES, COMPARABLE_TYPES };
@@ -123,6 +146,33 @@ export function createScalarListOperatorSchema(
   return z.preprocess(coerceToArray, z.array(itemBase));
 }
 
+function createJsonOperatorSchema(
+  fieldMeta: FieldMeta,
+  operator: string,
+): z.ZodTypeAny {
+  const jsonValue = z.unknown();
+
+  if (operator === "equals" || operator === "not") {
+    return !fieldMeta.isRequired ? z.union([jsonValue, z.null()]) : jsonValue;
+  }
+
+  if (operator === "path") {
+    return z.preprocess(coerceToArray, z.array(z.string()).min(1));
+  }
+
+  if (JSON_STRING_OPERATORS.has(operator)) {
+    return z.string();
+  }
+
+  if (JSON_ARRAY_OPERATORS.has(operator)) {
+    return jsonValue;
+  }
+
+  throw new ShapeError(
+    `Operator "${operator}" not supported for Json fields`,
+  );
+}
+
 export function createOperatorSchema(
   fieldMeta: FieldMeta,
   operator: string,
@@ -158,6 +208,16 @@ export function createOperatorSchema(
       ? z.union([enumSchema, z.null()])
       : enumSchema;
     return z.preprocess(coerceToArray, z.array(itemSchema));
+  }
+
+  if (fieldMeta.type === "Json") {
+    const supportedOps = SCALAR_OPERATORS["Json"];
+    if (!supportedOps || !supportedOps.has(operator)) {
+      throw new ShapeError(
+        `Operator "${operator}" not supported for type "Json"`,
+      );
+    }
+    return createJsonOperatorSchema(fieldMeta, operator);
   }
 
   const supportedOps = SCALAR_OPERATORS[fieldMeta.type];

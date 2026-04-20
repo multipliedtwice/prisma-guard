@@ -13,12 +13,17 @@ import type { WhereForced } from "./query-builder-forced.js";
 import { hasWhereForced, mergeWhereForced } from "./query-builder-forced.js";
 import type { ScalarBaseMap } from "../shared/scalar-base.js";
 
-const UNSUPPORTED_WHERE_TYPES = new Set(["Json", "Bytes"]);
+const UNSUPPORTED_WHERE_TYPES = new Set(["Bytes"]);
 const STRING_MODE_OPS = new Set([
   "contains",
   "startsWith",
   "endsWith",
   "equals",
+]);
+const JSON_STRING_MODE_OPS = new Set([
+  "string_contains",
+  "string_starts_with",
+  "string_ends_with",
 ]);
 const MAX_WHERE_DEPTH = 10;
 
@@ -125,6 +130,12 @@ function mergeRelationForcedMaps(
       }
     }
   }
+}
+
+function isModeCompatibleOp(fieldType: string, op: string): boolean {
+  if (fieldType === "String") return STRING_MODE_OPS.has(op);
+  if (fieldType === "Json") return JSON_STRING_MODE_OPS.has(op);
+  return false;
 }
 
 export function createWhereBuilder(
@@ -408,7 +419,7 @@ export function createWhereBuilder(
     const opSchemas: Record<string, z.ZodTypeAny> = {};
     const fieldForced: Record<string, unknown> = {};
     let hasClientOps = false;
-    let hasStringModeOp = false;
+    let hasModeCompatibleOp = false;
     const clientOpKeys: string[] = [];
     let modeConfigValue: unknown = undefined;
     let hasModeConfig = false;
@@ -429,12 +440,8 @@ export function createWhereBuilder(
         ).optional();
         hasClientOps = true;
         clientOpKeys.push(op);
-        if (
-          fieldMeta.type === "String" &&
-          !fieldMeta.isList &&
-          STRING_MODE_OPS.has(op)
-        ) {
-          hasStringModeOp = true;
+        if (!fieldMeta.isList && isModeCompatibleOp(fieldMeta.type, op)) {
+          hasModeCompatibleOp = true;
         }
       } else {
         const actualOpValue = isForcedValue(opValue) ? opValue.value : opValue;
@@ -453,12 +460,8 @@ export function createWhereBuilder(
           );
         }
         fieldForced[op] = parsed;
-        if (
-          fieldMeta.type === "String" &&
-          !fieldMeta.isList &&
-          STRING_MODE_OPS.has(op)
-        ) {
-          hasStringModeOp = true;
+        if (!fieldMeta.isList && isModeCompatibleOp(fieldMeta.type, op)) {
+          hasModeCompatibleOp = true;
         }
       }
     }
@@ -466,7 +469,7 @@ export function createWhereBuilder(
     if (!hasClientOps && Object.keys(fieldForced).length === 0) {
       if (hasModeConfig) {
         throw new ShapeError(
-          `Where field "${fieldName}" on model "${model}" has "mode" but no operators. Add at least one operator (contains, startsWith, endsWith, equals).`,
+          `Where field "${fieldName}" on model "${model}" has "mode" but no operators. Add at least one compatible operator.`,
         );
       }
       throw new ShapeError(
@@ -475,9 +478,9 @@ export function createWhereBuilder(
     }
 
     if (hasModeConfig) {
-      if (!hasStringModeOp) {
+      if (!hasModeCompatibleOp) {
         throw new ShapeError(
-          `"mode" on where field "${fieldName}" on model "${model}" requires a compatible String operator (contains, startsWith, endsWith, equals)`,
+          `"mode" on where field "${fieldName}" on model "${model}" requires a compatible operator (String: contains, startsWith, endsWith, equals; Json: string_contains, string_starts_with, string_ends_with)`,
         );
       }
       if (modeConfigValue === true) {
@@ -497,7 +500,7 @@ export function createWhereBuilder(
         }
         fieldForced["mode"] = parsed;
       }
-    } else if (hasStringModeOp) {
+    } else if (hasModeCompatibleOp) {
       opSchemas["mode"] = z.enum(["default", "insensitive"]).optional();
     }
 
@@ -513,7 +516,7 @@ export function createWhereBuilder(
         },
       );
 
-      if ("equals" in opSchemas) {
+      if ("equals" in opSchemas && fieldMeta.type !== "Json") {
         const equalsBase = createOperatorSchema(
           fieldMeta,
           "equals",

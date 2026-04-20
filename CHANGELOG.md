@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.19.0...v1.20.0) (2026-04-20)
+
+
+### Features
+
+* **model-guard.ts:** add unique where validation and handling for model guards to enforce unique constraints ([781e1a6](https://github.com/multipliedtwice/prisma-guard/commit/781e1a6d1449ba478388bd7a7b8ce272c18ce71d))
+
 # [1.19.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.18.1...v1.19.0) (2026-04-20)
 
 

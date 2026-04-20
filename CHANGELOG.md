@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.13.1...v1.14.0) (2026-04-20)
+
+
+### Features
+
+* **generator:** add support for unsupported field kind in type map generation ([a4202df](https://github.com/multipliedtwice/prisma-guard/commit/a4202dfd98e977f455f6c3d3f16bafd36dba4421))
+
 ## [1.13.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.13.0...v1.13.1) (2026-04-20)
 
 

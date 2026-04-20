@@ -522,6 +522,7 @@ export function createQueryBuilder(
     buildQuerySchema,
     buildShapeZodSchema,
     buildWhereSchema: whereBuilder.buildWhereSchema,
+    buildUniqueWhereSchema: whereBuilder.buildUniqueWhereSchema,
     buildIncludeSchema: projectionBuilder.buildIncludeSchema,
     buildSelectSchema: projectionBuilder.buildSelectSchema,
   };

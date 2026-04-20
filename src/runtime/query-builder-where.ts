@@ -7,11 +7,14 @@ import {
   TO_ONE_RELATION_OPS,
 } from "../shared/constants.js";
 import { isForcedValue } from "../shared/constants.js";
-import { createOperatorSchema, getSupportedOperators } from "./zod-type-map.js";
+import { createOperatorSchema, createBaseType } from "./zod-type-map.js";
 import { isPlainObject, coerceToArray } from "../shared/utils.js";
 import type { WhereForced } from "./query-builder-forced.js";
 import { hasWhereForced, mergeWhereForced } from "./query-builder-forced.js";
-import type { ScalarBaseMap } from "../shared/scalar-base.js";
+import {
+  wrapWithInputCoercion,
+  type ScalarBaseMap,
+} from "../shared/scalar-base.js";
 
 const UNSUPPORTED_WHERE_TYPES = new Set(["Bytes"]);
 const STRING_MODE_OPS = new Set([
@@ -30,6 +33,12 @@ const MAX_WHERE_DEPTH = 10;
 export interface WhereBuiltResult {
   schema: z.ZodTypeAny | null;
   forced: WhereForced;
+  forcedOnlyKeys: Set<string>;
+}
+
+export interface UniqueWhereBuiltResult {
+  schema: z.ZodObject<any> | null;
+  forced: Record<string, unknown>;
   forcedOnlyKeys: Set<string>;
 }
 
@@ -410,13 +419,6 @@ export function createWhereBuilder(
     fieldSchemas: Record<string, z.ZodTypeAny>,
     scalarConditions: Record<string, unknown>,
   ): void {
-    if (operators === true) {
-      const supportedOps = getSupportedOperators(fieldMeta);
-      const expanded: Record<string, true> = {};
-      for (const op of supportedOps) expanded[op] = true;
-      operators = expanded;
-    }
-
     if (!isPlainObject(operators)) {
       throw new ShapeError(
         `Where config for scalar field "${fieldName}" on model "${model}" must be an object of operators`,
@@ -541,5 +543,104 @@ export function createWhereBuilder(
     }
   }
 
-  return { buildWhereSchema };
+  function buildUniqueWhereSchema(
+    model: string,
+    whereConfig: Record<string, unknown>,
+  ): UniqueWhereBuiltResult {
+    const modelFields = typeMap[model];
+    if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
+
+    const fieldSchemas: Record<string, z.ZodTypeAny> = {};
+    const forced: Record<string, unknown> = {};
+    const forcedOnlyKeys = new Set<string>();
+
+    for (const [key, value] of Object.entries(whereConfig)) {
+      if (COMBINATOR_KEYS.has(key)) {
+        throw new ShapeError(
+          `Combinator "${key}" is not supported in unique where for model "${model}"`,
+        );
+      }
+
+      const fieldMeta = modelFields[key];
+      if (!fieldMeta)
+        throw new ShapeError(`Unknown field "${key}" on model "${model}"`);
+      if (fieldMeta.isRelation)
+        throw new ShapeError(
+          `Relation field "${key}" cannot be used in unique where for model "${model}"`,
+        );
+
+      const base = createBaseType(fieldMeta, enumMap, scalarBase);
+      let directSchema: z.ZodTypeAny;
+      if (
+        !fieldMeta.isEnum &&
+        !fieldMeta.isRelation &&
+        !fieldMeta.isUnsupported
+      ) {
+        directSchema = wrapWithInputCoercion(
+          fieldMeta.type,
+          fieldMeta.isList,
+          base,
+        );
+      } else {
+        directSchema = base;
+      }
+
+      const equalsWrapper = z
+        .object({ equals: directSchema })
+        .strict()
+        .transform((v) => v.equals);
+
+      if (value === true) {
+        fieldSchemas[key] = z.union([directSchema, equalsWrapper]);
+        continue;
+      }
+
+      if (isPlainObject(value)) {
+        const keys = Object.keys(value);
+        if (keys.length === 1 && keys[0] === "equals") {
+          const equalsVal = (value as Record<string, unknown>).equals;
+          if (equalsVal === true) {
+            fieldSchemas[key] = z.union([directSchema, equalsWrapper]);
+          } else {
+            const actual = isForcedValue(equalsVal)
+              ? (equalsVal as any).value
+              : equalsVal;
+            try {
+              forced[key] = directSchema.parse(actual);
+            } catch (err: any) {
+              throw new ShapeError(
+                `Invalid forced value for unique where "${model}.${key}": ${err.message}`,
+              );
+            }
+            forcedOnlyKeys.add(key);
+          }
+          continue;
+        }
+        throw new ShapeError(
+          `Unique where field "${key}" on model "${model}" only accepts true or { equals: true/value }. Got operators: ${keys.join(", ")}`,
+        );
+      }
+
+      const actual = isForcedValue(value) ? (value as any).value : value;
+      try {
+        forced[key] = directSchema.parse(actual);
+      } catch (err: any) {
+        throw new ShapeError(
+          `Invalid forced value for unique where "${model}.${key}": ${err.message}`,
+        );
+      }
+      forcedOnlyKeys.add(key);
+    }
+
+    return {
+      schema:
+        Object.keys(fieldSchemas).length > 0
+          ? z.object(fieldSchemas).strict()
+          : null,
+      forced,
+      forcedOnlyKeys,
+    };
+  }
+
+  return { buildWhereSchema, buildUniqueWhereSchema };
 }

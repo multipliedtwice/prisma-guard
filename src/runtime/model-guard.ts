@@ -37,7 +37,7 @@ import type {
   ForcedTree,
   WhereForced,
 } from "./query-builder-forced.js";
-import type { WhereBuiltResult } from "./query-builder-where.js";
+import type { WhereBuiltResult, UniqueWhereBuiltResult } from "./query-builder-where.js";
 import {
   buildDataSchema,
   validateCreateCompleteness,
@@ -97,25 +97,6 @@ interface BuiltProjection {
   forcedSelectTree: Record<string, ForcedTree>;
   forcedIncludeCountWhere: Record<string, WhereForced>;
   forcedSelectCountWhere: Record<string, WhereForced>;
-}
-
-function normalizeUniqueWhere(where: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(where)) {
-    if (
-      key !== 'AND' &&
-      key !== 'OR' &&
-      key !== 'NOT' &&
-      isPlainObject(value) &&
-      'equals' in value &&
-      Object.keys(value).length === 1
-    ) {
-      result[key] = value.equals;
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
 }
 
 function buildDefaultSelectInput(
@@ -398,6 +379,48 @@ export function createModelGuardExtension(config: {
     validateUniqueEquality(modelName, shape.where, method, uniqueMap, typeMap);
   }
 
+  function validateUniqueWhereShapeConfig(
+    modelName: string,
+    where: Record<string, unknown>,
+    method: string,
+  ): void {
+    const constraints = uniqueMap[modelName];
+    if (!constraints || constraints.length === 0) return;
+
+    const equalityFields = new Set<string>();
+
+    for (const [key, value] of Object.entries(where)) {
+      if (key === "AND" || key === "OR" || key === "NOT") continue;
+
+      if (value === true) {
+        equalityFields.add(key);
+        continue;
+      }
+
+      if (isPlainObject(value) && "equals" in value) {
+        equalityFields.add(key);
+        continue;
+      }
+
+      if (value !== null && value !== undefined) {
+        equalityFields.add(key);
+      }
+    }
+
+    const valid = constraints.some((constraint) =>
+      constraint.every((field) => equalityFields.has(field)),
+    );
+
+    if (!valid) {
+      const constraintDesc = constraints
+        .map((c) => `(${c.join(", ")})`)
+        .join(" | ");
+      throw new ShapeError(
+        `${method} on model "${modelName}" requires where to cover a unique constraint with equality operators only: ${constraintDesc}`,
+      );
+    }
+  }
+
   function createGuardedMethods(
     modelName: string,
     modelDelegate: Record<string, (args: any) => any>,
@@ -425,6 +448,7 @@ export function createModelGuardExtension(config: {
     const dataSchemaCache = new Map<string, BuiltDataSchema>();
     const whereBuiltCache = new Map<string, WhereBuiltResult>();
     const projectionCache = new Map<string, BuiltProjection>();
+    const uniqueWhereCache = new Map<string, UniqueWhereBuiltResult>();
 
     function getReadShape(
       method: QueryMethod,
@@ -495,6 +519,22 @@ export function createModelGuardExtension(config: {
         return built;
       }
       return queryBuilder.buildWhereSchema(modelName, whereConfig);
+    }
+
+    function getUniqueWhereBuilt(
+      whereConfig: Record<string, unknown>,
+      matchedKey: string,
+      wasDynamic: boolean,
+    ): UniqueWhereBuiltResult {
+      if (!wasDynamic) {
+        const cacheKey = `unique\0${matchedKey}`;
+        const cached = uniqueWhereCache.get(cacheKey);
+        if (cached) return cached;
+        const built = queryBuilder.buildUniqueWhereSchema(modelName, whereConfig);
+        uniqueWhereCache.set(cacheKey, built);
+        return built;
+      }
+      return queryBuilder.buildUniqueWhereSchema(modelName, whereConfig);
     }
 
     function buildProjectionSchema(shape: GuardShape): BuiltProjection {
@@ -699,6 +739,67 @@ export function createModelGuardExtension(config: {
       return where;
     }
 
+    function buildUniqueWhereFromShape(
+      shape: GuardShape,
+      bodyWhere: unknown,
+      matchedKey: string,
+      wasDynamic: boolean,
+    ): Record<string, unknown> {
+      if (!shape.where) return {};
+
+      const built = getUniqueWhereBuilt(shape.where, matchedKey, wasDynamic);
+      let result: Record<string, unknown> = {};
+
+      if (built.schema) {
+        if (bodyWhere !== undefined && bodyWhere !== null) {
+          if (!isPlainObject(bodyWhere)) {
+            throw new ShapeError("Unique where must be an object");
+          }
+          const sanitized = { ...(bodyWhere as Record<string, unknown>) };
+          for (const key of built.forcedOnlyKeys) {
+            delete sanitized[key];
+          }
+          result = built.schema.parse(sanitized) as Record<string, unknown>;
+        }
+      } else if (bodyWhere !== undefined && bodyWhere !== null) {
+        if (isPlainObject(bodyWhere)) {
+          const hasOnlyForcedKeys =
+            built.forcedOnlyKeys.size > 0 &&
+            Object.keys(bodyWhere).every((k) => built.forcedOnlyKeys.has(k));
+          if (!hasOnlyForcedKeys && Object.keys(bodyWhere).length > 0) {
+            throw new ShapeError(
+              "Unique where shape contains only forced values. Client where input is not accepted.",
+            );
+          }
+        }
+      }
+
+      for (const [key, value] of Object.entries(built.forced)) {
+        result[key] = value;
+      }
+
+      return result;
+    }
+
+    function requireUniqueWhere(
+      shape: GuardShape,
+      bodyWhere: unknown,
+      method: string,
+      matchedKey: string,
+      wasDynamic: boolean,
+    ): Record<string, unknown> {
+      const where = buildUniqueWhereFromShape(
+        shape,
+        bodyWhere,
+        matchedKey,
+        wasDynamic,
+      );
+      if (Object.keys(where).length === 0) {
+        throw new ShapeError(`${method} requires a where condition`);
+      }
+      return where;
+    }
+
     function buildEffectiveReadBody(resolved: {
       body: Record<string, unknown>;
       shape: GuardShape;
@@ -884,7 +985,6 @@ export function createModelGuardExtension(config: {
             `Guard shape requires "where" for ${method} to prevent unconstrained bulk mutations`,
           );
         }
-        maybeValidateUniqueWhere(modelName, resolved.shape, method);
         const dataSchema = getDataSchema(
           "update",
           resolved.shape.data,
@@ -896,30 +996,38 @@ export function createModelGuardExtension(config: {
           dataSchema,
           method,
         );
-        let where = isUniqueWhere
-          ? requireWhere(
-              resolved.shape,
-              resolved.body.where,
-              method,
-              true,
-              resolved.matchedKey,
-              resolved.wasDynamic,
-            )
-          : buildWhereFromShape(
-              resolved.shape,
-              resolved.body.where,
-              false,
-              resolved.matchedKey,
-              resolved.wasDynamic,
-            );
-        if (isBulk && Object.keys(where).length === 0) {
-          throw new ShapeError(
-            `${method} requires at least one where condition`,
-          );
-        }
+
+        let where: Record<string, unknown>;
         if (isUniqueWhere) {
+          if (resolved.shape.where) {
+            validateUniqueWhereShapeConfig(
+              modelName,
+              resolved.shape.where,
+              method,
+            );
+          }
+          where = requireUniqueWhere(
+            resolved.shape,
+            resolved.body.where,
+            method,
+            resolved.matchedKey,
+            resolved.wasDynamic,
+          );
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap);
-          where = normalizeUniqueWhere(where);
+        } else {
+          maybeValidateUniqueWhere(modelName, resolved.shape, method);
+          where = buildWhereFromShape(
+            resolved.shape,
+            resolved.body.where,
+            false,
+            resolved.matchedKey,
+            resolved.wasDynamic,
+          );
+          if (isBulk && Object.keys(where).length === 0) {
+            throw new ShapeError(
+              `${method} requires at least one where condition`,
+            );
+          }
         }
 
         const args: Record<string, unknown> = { data, where };
@@ -966,31 +1074,38 @@ export function createModelGuardExtension(config: {
             `Guard shape requires "where" for ${method} to prevent unconstrained bulk mutations`,
           );
         }
-        maybeValidateUniqueWhere(modelName, resolved.shape, method);
-        let where = isUniqueWhere
-          ? requireWhere(
-              resolved.shape,
-              resolved.body.where,
-              method,
-              true,
-              resolved.matchedKey,
-              resolved.wasDynamic,
-            )
-          : buildWhereFromShape(
-              resolved.shape,
-              resolved.body.where,
-              false,
-              resolved.matchedKey,
-              resolved.wasDynamic,
-            );
-        if (isBulk && Object.keys(where).length === 0) {
-          throw new ShapeError(
-            `${method} requires at least one where condition`,
-          );
-        }
+
+        let where: Record<string, unknown>;
         if (isUniqueWhere) {
+          if (resolved.shape.where) {
+            validateUniqueWhereShapeConfig(
+              modelName,
+              resolved.shape.where,
+              method,
+            );
+          }
+          where = requireUniqueWhere(
+            resolved.shape,
+            resolved.body.where,
+            method,
+            resolved.matchedKey,
+            resolved.wasDynamic,
+          );
           validateResolvedUniqueWhere(modelName, where, method, uniqueMap);
-          where = normalizeUniqueWhere(where);
+        } else {
+          maybeValidateUniqueWhere(modelName, resolved.shape, method);
+          where = buildWhereFromShape(
+            resolved.shape,
+            resolved.body.where,
+            false,
+            resolved.matchedKey,
+            resolved.wasDynamic,
+          );
+          if (isBulk && Object.keys(where).length === 0) {
+            throw new ShapeError(
+              `${method} requires at least one where condition`,
+            );
+          }
         }
 
         const args: Record<string, unknown> = { where };
@@ -1041,7 +1156,11 @@ export function createModelGuardExtension(config: {
           "upsert",
         );
 
-        maybeValidateUniqueWhere(modelName, resolved.shape, "upsert");
+        validateUniqueWhereShapeConfig(
+          modelName,
+          resolved.shape.where,
+          "upsert",
+        );
 
         const fks = modelScopeFks.get(modelName) ?? new Set<string>();
         validateCreateCompleteness(
@@ -1076,18 +1195,17 @@ export function createModelGuardExtension(config: {
           "upsert (update)",
         );
 
-        const where = requireWhere(
+        const where = requireUniqueWhere(
           resolved.shape,
           resolved.body.where,
           "upsert",
-          true,
           resolved.matchedKey,
           resolved.wasDynamic,
         );
         validateResolvedUniqueWhere(modelName, where, "upsert", uniqueMap);
 
         const args: Record<string, unknown> = {
-          where: normalizeUniqueWhere(where),
+          where,
           create: createData,
           update: updateData,
         };

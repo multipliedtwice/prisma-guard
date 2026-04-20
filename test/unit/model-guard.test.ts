@@ -145,6 +145,7 @@ function makeDelegateMock() {
     "updateManyAndReturn",
     "delete",
     "deleteMany",
+    "upsert",
   ];
   for (const m of methods) {
     calls[m] = [];
@@ -678,6 +679,232 @@ describe("model-guard", () => {
       });
 
       expect(calls.update[0].data).toEqual({ description: null });
+    });
+  });
+
+  describe("unique where handling", () => {
+    it("update with { id: true } shape accepts direct value", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { id: true },
+        },
+      );
+
+      guarded.update({
+        data: { title: "Updated" },
+        where: { id: "abc" },
+      });
+
+      expect(calls.update.length).toBe(1);
+      expect(calls.update[0].where).toEqual({ id: "abc" });
+    });
+
+    it("update with { id: true } shape accepts { equals } wrapper", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { id: true },
+        },
+      );
+
+      guarded.update({
+        data: { title: "Updated" },
+        where: { id: { equals: "abc" } },
+      });
+
+      expect(calls.update.length).toBe(1);
+      expect(calls.update[0].where).toEqual({ id: "abc" });
+    });
+
+    it("update with { id: { equals: true } } shape accepts direct value", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { id: { equals: true } },
+        },
+      );
+
+      guarded.update({
+        data: { title: "Updated" },
+        where: { id: "abc" },
+      });
+
+      expect(calls.update.length).toBe(1);
+      expect(calls.update[0].where).toEqual({ id: "abc" });
+    });
+
+    it("delete with { id: true } shape produces direct value", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          where: { id: true },
+        },
+      );
+
+      guarded.delete({ where: { id: "abc" } });
+
+      expect(calls.delete.length).toBe(1);
+      expect(calls.delete[0].where).toEqual({ id: "abc" });
+    });
+
+    it("delete with { id: { equals: true } } shape accepts { equals } wrapper", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          where: { id: { equals: true } },
+        },
+      );
+
+      guarded.delete({ where: { id: { equals: "abc" } } });
+
+      expect(calls.delete.length).toBe(1);
+      expect(calls.delete[0].where).toEqual({ id: "abc" });
+    });
+
+    it("upsert with unique where produces direct value", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          where: { id: true },
+          create: { title: true },
+          update: { title: true },
+        },
+      );
+
+      guarded.upsert({
+        where: { id: "abc" },
+        create: { title: "New" },
+        update: { title: "Updated" },
+      });
+
+      expect(calls.upsert.length).toBe(1);
+      expect(calls.upsert[0].where).toEqual({ id: "abc" });
+    });
+
+    it("unique where rejects non-equals operators in shape", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      expect(() =>
+        ext.$allModels.guard.call(
+          {
+            $name: "Project",
+            $parent: { project: handler },
+          } as any,
+          {
+            data: { title: true },
+            where: { id: { contains: true } },
+          },
+        ).update({
+          data: { title: "x" },
+          where: { id: { contains: "abc" } },
+        }),
+      ).toThrow(ShapeError);
+    });
+
+    it("unique where rejects combinators in shape", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      expect(() =>
+        ext.$allModels.guard.call(
+          {
+            $name: "Project",
+            $parent: { project: handler },
+          } as any,
+          {
+            data: { title: true },
+            where: { OR: { id: { equals: true } } },
+          },
+        ).update({
+          data: { title: "x" },
+          where: { id: "abc" },
+        }),
+      ).toThrow(ShapeError);
+    });
+
+    it("unique where rejects shape not covering unique constraint", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      expect(() =>
+        ext.$allModels.guard.call(
+          {
+            $name: "Project",
+            $parent: { project: handler },
+          } as any,
+          {
+            data: { title: true },
+            where: { title: true },
+          },
+        ).update({
+          data: { title: "x" },
+          where: { title: "y" },
+        }),
+      ).toThrow(ShapeError);
+    });
+
+    it("unique where with forced value", () => {
+      const ext = makeExtension();
+      const { calls, handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { id: { equals: "forced-id" } },
+        },
+      );
+
+      guarded.update({
+        data: { title: "Updated" },
+      });
+
+      expect(calls.update.length).toBe(1);
+      expect(calls.update[0].where).toEqual({ id: "forced-id" });
     });
   });
 

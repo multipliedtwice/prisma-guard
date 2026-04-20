@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.16.0...v1.17.0) (2026-04-20)
+
+
+### Features
+
+* **query-builder:** enhance JSON support in query builder with new operators and compatibility checks ([69f4630](https://github.com/multipliedtwice/prisma-guard/commit/69f4630bb6ab801b57a1d91b7bf0a1de28875935))
+
 # [1.16.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.15.0...v1.16.0) (2026-04-20)
 
 

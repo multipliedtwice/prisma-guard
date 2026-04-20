@@ -6,7 +6,7 @@ import type {
   DataFieldRefine,
 } from "../shared/types.js";
 import { ShapeError } from "../shared/errors.js";
-import { isForcedValue } from "../shared/constants.js";
+import { isForcedValue, isUnsupportedMarker } from "../shared/constants.js";
 import { deepClone } from "../shared/deep-clone.js";
 import type { createSchemaBuilder } from "./schema-builder.js";
 import {
@@ -687,7 +687,7 @@ export function buildDataSchema(
     const fieldMeta = modelFields[fieldName];
 
     if (!fieldMeta) {
-      if (value === true) {
+      if (isUnsupportedMarker(value)) {
         schemaMap[fieldName] = z.unknown().optional();
         continue;
       }

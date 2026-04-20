@@ -1,6 +1,6 @@
 export { createGuard } from './guard.js'
 export { PolicyError, ShapeError, CallerError } from '../shared/errors.js'
-export { force } from '../shared/constants.js'
+export { force, unsupported } from '../shared/constants.js'
 export type {
   FieldMeta,
   InputOpts,

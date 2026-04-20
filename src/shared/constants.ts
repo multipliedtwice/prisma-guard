@@ -28,3 +28,15 @@ export function force<T>(value: T): { value: T } {
   wrapper[FORCED_MARKER] = true
   return wrapper
 }
+
+const UNSUPPORTED_MARKER = Symbol.for('prisma-guard.unsupported')
+
+export function isUnsupportedMarker(v: unknown): boolean {
+  return v !== null && typeof v === 'object' && (v as any)[UNSUPPORTED_MARKER] === true
+}
+
+export function unsupported(): { __brand: 'unsupported' } {
+  const marker: any = {}
+  marker[UNSUPPORTED_MARKER] = true
+  return marker
+}

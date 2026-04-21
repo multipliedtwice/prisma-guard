@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.20.0...v1.21.0) (2026-04-21)
+
+
+### Features
+
+* realtion support, better error handling ([11dc15d](https://github.com/multipliedtwice/prisma-guard/commit/11dc15d072cd154d08187223fbd9ee302d3402a1))
+
 # [1.20.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.19.0...v1.20.0) (2026-04-20)
 
 

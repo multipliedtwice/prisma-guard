@@ -1,3 +1,11 @@
+## [1.21.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.21.0...v1.21.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **scalar-base.ts:** improve integer coercion by using Math.trunc to handle non-integer values correctly ([7e350f6](https://github.com/multipliedtwice/prisma-guard/commit/7e350f668306fe891f06d24dd3bf1cbdbb3b6285))
+* update validation logic to accept exponent with '+' sign and improve date parsing in schemas ([172f678](https://github.com/multipliedtwice/prisma-guard/commit/172f6780764628e711669a8532e2f7f223678fcd))
+
 # [1.21.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.20.0...v1.21.0) (2026-04-21)
 
 

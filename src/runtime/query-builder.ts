@@ -416,6 +416,26 @@ export function createQueryBuilder(
     return { key: matched, shape: shapes[matched] };
   }
 
+  function resolveDefaultShape<TCtx>(
+    config: Record<string, ShapeOrFn<TCtx>>,
+    model: string,
+    method: QueryMethod,
+    normalizedBody: unknown,
+    opts: { ctx?: TCtx; caller?: string } | undefined,
+    builtCache: Map<string, BuiltShape>,
+    isUnique: boolean,
+  ): Record<string, unknown> {
+    const shapeOrFn = config['default'];
+    let built: BuiltShape;
+    if (typeof shapeOrFn === 'function') {
+      const resolved = resolveAndValidateShape(shapeOrFn, opts?.ctx);
+      built = buildShapeZodSchema(model, method, resolved);
+    } else {
+      built = builtCache.get('default')!;
+    }
+    return applyBuiltShape(built, normalizedBody, isUnique);
+  }
+
   function buildQuerySchema<TCtx>(
     model: string,
     method: QueryMethod,
@@ -481,25 +501,31 @@ export function createQueryBuilder(
             );
           }
 
+          const namedConfig = config as Record<string, ShapeOrFn<TCtx>>;
           const caller = opts?.caller;
+
           if (typeof caller !== "string") {
-            const allowed = Object.keys(
-              config as Record<string, ShapeOrFn<TCtx>>,
-            );
+            if ("default" in namedConfig) {
+              return resolveDefaultShape(
+                namedConfig, model, method, normalizedBody, opts, builtCache, isUnique,
+              );
+            }
+            const allowed = Object.keys(namedConfig);
             throw new CallerError(
               `Missing caller. This query uses named shape routing with keys: ${allowed.map((k) => `"${k}"`).join(", ")}. ` +
                 `Provide caller via opts.caller.`,
             );
           }
 
-          const matched = matchCaller(
-            config as Record<string, ShapeOrFn<TCtx>>,
-            caller,
-          );
+          const matched = matchCaller(namedConfig, caller);
+
           if (!matched) {
-            const allowed = Object.keys(
-              config as Record<string, ShapeOrFn<TCtx>>,
-            );
+            if ("default" in namedConfig) {
+              return resolveDefaultShape(
+                namedConfig, model, method, normalizedBody, opts, builtCache, isUnique,
+              );
+            }
+            const allowed = Object.keys(namedConfig);
             throw new CallerError(
               `Unknown caller: "${caller}". Allowed: ${allowed.map((k) => `"${k}"`).join(", ")}`,
             );

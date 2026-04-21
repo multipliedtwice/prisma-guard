@@ -70,7 +70,7 @@ export interface ShapeConfig {
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: true | Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
-  take?: { max: number; default?: number }
+  take?: number | { max: number; default?: number }
   skip?: true
   distinct?: string[]
   _count?: true | Record<string, true>
@@ -88,7 +88,7 @@ export interface NestedIncludeArgs {
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
-  take?: { max: number; default?: number }
+  take?: number | { max: number; default?: number }
   skip?: true
 }
 
@@ -98,7 +98,7 @@ export interface NestedSelectArgs {
   where?: Record<string, unknown>
   orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
-  take?: { max: number; default?: number }
+  take?: number | { max: number; default?: number }
   skip?: true
 }
 

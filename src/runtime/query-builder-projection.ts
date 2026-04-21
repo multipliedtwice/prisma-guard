@@ -31,7 +31,7 @@ interface ProjectionDeps {
   buildWhereSchema(model: string, config: Record<string, unknown>): WhereBuiltResult
   buildOrderBySchema(model: string, config: Record<string, OrderByFieldConfig>): z.ZodTypeAny
   buildCursorSchema(model: string, config: Record<string, true>): z.ZodTypeAny
-  buildTakeSchema(config: { max: number; default?: number }): z.ZodTypeAny
+  buildTakeSchema(config: number | { max: number; default?: number }): z.ZodTypeAny
 }
 
 function validateNestedKeys(

@@ -5,7 +5,7 @@ import type {
   ZodDefaults,
   DataFieldRefine,
 } from "../shared/types.js";
-import { ShapeError } from "../shared/errors.js";
+import { ShapeError, formatZodError } from "../shared/errors.js";
 import { isForcedValue, isUnsupportedMarker } from "../shared/constants.js";
 import { deepClone } from "../shared/deep-clone.js";
 import type { createSchemaBuilder } from "./schema-builder.js";
@@ -838,11 +838,24 @@ export function validateAndMergeData(
   bodyData: unknown,
   cached: BuiltDataSchema,
   method: string,
+  modelName?: string,
 ): Record<string, unknown> {
   if (bodyData === undefined || bodyData === null) {
     throw new ShapeError(`${method} requires "data" in request body`);
   }
-  const validated = cached.schema.parse(bodyData);
+  let validated: Record<string, unknown>;
+  try {
+    validated = cached.schema.parse(bodyData);
+  } catch (err) {
+    if (err instanceof ShapeError) throw err;
+    if (err && typeof err === 'object' && 'issues' in err) {
+      const context = modelName
+        ? `Invalid data for ${method} on model "${modelName}"`
+        : `Invalid data for ${method}`;
+      throw new ShapeError(`${context}: ${formatZodError(err as any)}`, { cause: err });
+    }
+    throw err;
+  }
   return { ...validated, ...deepClone(cached.forced) };
 }
 

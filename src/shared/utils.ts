@@ -22,14 +22,17 @@ export function coerceToArray(value: unknown): unknown {
   if (value === null || value === undefined) return value
   if (typeof value !== 'object') return value
   const keys = Object.keys(value as Record<string, unknown>)
-  if (keys.length === 0) return []
+  if (keys.length === 0) return value
   const allNumeric = keys.every((k) => /^\d+$/.test(k))
   if (!allNumeric) return value
-  const sorted = keys.map(Number).sort((a, b) => a - b)
+  const indices = keys.map(Number).sort((a, b) => a - b)
+  for (let i = 0; i < indices.length; i++) {
+    if (indices[i] !== i) return value
+  }
   const obj = value as Record<string, unknown>
-  const result: unknown[] = []
-  for (const idx of sorted) {
-    result.push(obj[String(idx)])
+  const result: unknown[] = new Array(indices.length)
+  for (let i = 0; i < indices.length; i++) {
+    result[i] = obj[String(i)]
   }
   return result
 }

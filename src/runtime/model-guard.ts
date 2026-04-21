@@ -14,7 +14,11 @@ import type {
   NestedIncludeArgs,
   NestedSelectArgs,
 } from "../shared/types.js";
-import { ShapeError, formatZodError } from "../shared/errors.js";
+import {
+  ShapeError,
+  formatZodError,
+  wrapParseError,
+} from "../shared/errors.js";
 import {
   GUARD_SHAPE_KEYS,
   toDelegateKey,
@@ -37,7 +41,10 @@ import type {
   ForcedTree,
   WhereForced,
 } from "./query-builder-forced.js";
-import type { WhereBuiltResult, UniqueWhereBuiltResult } from "./query-builder-where.js";
+import type {
+  WhereBuiltResult,
+  UniqueWhereBuiltResult,
+} from "./query-builder-where.js";
 import {
   buildDataSchema,
   validateCreateCompleteness,
@@ -530,7 +537,10 @@ export function createModelGuardExtension(config: {
         const cacheKey = `unique\0${matchedKey}`;
         const cached = uniqueWhereCache.get(cacheKey);
         if (cached) return cached;
-        const built = queryBuilder.buildUniqueWhereSchema(modelName, whereConfig);
+        const built = queryBuilder.buildUniqueWhereSchema(
+          modelName,
+          whereConfig,
+        );
         uniqueWhereCache.set(cacheKey, built);
         return built;
       }
@@ -637,10 +647,18 @@ export function createModelGuardExtension(config: {
         projectionBody = buildDefaultProjectionBody(shape);
       }
 
-      const validated = projection.zodSchema.parse(projectionBody) as Record<
-        string,
-        unknown
-      >;
+      let validated: Record<string, unknown>;
+      try {
+        validated = projection.zodSchema.parse(projectionBody) as Record<
+          string,
+          unknown
+        >;
+      } catch (err) {
+        wrapParseError(
+          err,
+          `Invalid select/include projection on model "${modelName}" for ${method}`,
+        );
+      }
 
       if (Object.keys(projection.forcedIncludeTree).length > 0) {
         applyForcedTree(validated, "include", projection.forcedIncludeTree);
@@ -686,9 +704,13 @@ export function createModelGuardExtension(config: {
           }
           sanitizedWhere = w;
         }
-        validatedWhere = built.schema.parse(sanitizedWhere) as
-          | Record<string, unknown>
-          | undefined;
+        try {
+          validatedWhere = built.schema.parse(sanitizedWhere) as
+            | Record<string, unknown>
+            | undefined;
+        } catch (err) {
+          wrapParseError(err, `Invalid "where" clause on model "${modelName}"`);
+        }
       } else if (bodyWhere !== undefined) {
         if (
           bodyWhere === null ||
@@ -734,7 +756,12 @@ export function createModelGuardExtension(config: {
         wasDynamic,
       );
       if (Object.keys(where).length === 0) {
-        throw new ShapeError(`${method} requires a where condition`);
+        const expectedFields = shape.where
+          ? Object.keys(shape.where).join(", ")
+          : "none defined";
+        throw new ShapeError(
+          `${method} on model "${modelName}" requires a where condition. Expected fields: ${expectedFields}`,
+        );
       }
       return where;
     }
@@ -753,13 +780,23 @@ export function createModelGuardExtension(config: {
       if (built.schema) {
         if (bodyWhere !== undefined && bodyWhere !== null) {
           if (!isPlainObject(bodyWhere)) {
-            throw new ShapeError("Unique where must be an object");
+            throw new ShapeError(
+              `Invalid "where" on model "${modelName}": unique where must be a plain object`,
+            );
           }
           const sanitized = { ...(bodyWhere as Record<string, unknown>) };
           for (const key of built.forcedOnlyKeys) {
             delete sanitized[key];
           }
-          result = built.schema.parse(sanitized) as Record<string, unknown>;
+          try {
+            result = built.schema.parse(sanitized) as Record<string, unknown>;
+          } catch (err) {
+            const allowedFields = Object.keys(shape.where!).join(", ");
+            wrapParseError(
+              err,
+              `Invalid unique "where" on model "${modelName}". Allowed fields: ${allowedFields}`,
+            );
+          }
         }
       } else if (bodyWhere !== undefined && bodyWhere !== null) {
         if (isPlainObject(bodyWhere)) {
@@ -768,7 +805,7 @@ export function createModelGuardExtension(config: {
             Object.keys(bodyWhere).every((k) => built.forcedOnlyKeys.has(k));
           if (!hasOnlyForcedKeys && Object.keys(bodyWhere).length > 0) {
             throw new ShapeError(
-              "Unique where shape contains only forced values. Client where input is not accepted.",
+              `Unique where on model "${modelName}" contains only forced values. Client where input is not accepted.`,
             );
           }
         }
@@ -795,7 +832,17 @@ export function createModelGuardExtension(config: {
         wasDynamic,
       );
       if (Object.keys(where).length === 0) {
-        throw new ShapeError(`${method} requires a where condition`);
+        const constraints = uniqueMap[modelName];
+        const constraintDesc = constraints
+          ? constraints.map((c) => `(${c.join(", ")})`).join(" | ")
+          : "unknown";
+        const expectedFields = shape.where
+          ? Object.keys(shape.where).join(", ")
+          : "none defined";
+        throw new ShapeError(
+          `${method} on model "${modelName}" requires a unique where condition. ` +
+            `Unique constraints: ${constraintDesc}. Shape allows: ${expectedFields}`,
+        );
       }
       return where;
     }
@@ -861,7 +908,7 @@ export function createModelGuardExtension(config: {
 
         const effectiveBody = buildEffectiveReadBody(resolved);
 
-        const args = applyBuiltShape(built, effectiveBody, isUnique);
+        const args = applyBuiltShape(built, effectiveBody, isUnique, modelName);
         if (isUnique && args.where) {
           validateResolvedUniqueWhere(
             modelName,
@@ -923,6 +970,7 @@ export function createModelGuardExtension(config: {
             resolved.body.data,
             dataSchema,
             method,
+            modelName
           );
           args = { data };
         } else {
@@ -931,7 +979,7 @@ export function createModelGuardExtension(config: {
           if (resolved.body.data.length === 0)
             throw new ShapeError(`${method} received empty data array`);
           const data = resolved.body.data.map((item: unknown) =>
-            validateAndMergeData(item, dataSchema, method),
+            validateAndMergeData(item, dataSchema, method, modelName),
           );
           args = { data };
         }
@@ -995,6 +1043,7 @@ export function createModelGuardExtension(config: {
           resolved.body.data,
           dataSchema,
           method,
+          modelName
         );
 
         let where: Record<string, unknown>;
@@ -1181,6 +1230,7 @@ export function createModelGuardExtension(config: {
           resolved.body.create,
           createDataSchema,
           "upsert (create)",
+          modelName
         );
 
         const updateDataSchema = getDataSchema(
@@ -1193,6 +1243,7 @@ export function createModelGuardExtension(config: {
           resolved.body.update,
           updateDataSchema,
           "upsert (update)",
+          modelName
         );
 
         const where = requireUniqueWhere(

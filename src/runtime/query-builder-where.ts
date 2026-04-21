@@ -198,6 +198,7 @@ export function createWhereBuilder(
           fieldSchemas,
           relationForced,
           currentDepth,
+          scalarConditions,
         );
         continue;
       }
@@ -319,6 +320,7 @@ export function createWhereBuilder(
     fieldSchemas: Record<string, z.ZodTypeAny>,
     parentRelations: Record<string, Record<string, WhereForced>>,
     depth: number,
+    parentConditions: Record<string, unknown>,
   ): void {
     if (!isPlainObject(value)) {
       throw new ShapeError(
@@ -339,6 +341,7 @@ export function createWhereBuilder(
     const opSchemas: Record<string, z.ZodTypeAny> = {};
     const opForced: Record<string, WhereForced> = {};
     let hasClientOps = false;
+    let hasForcedNull = false;
 
     for (const [op, opValue] of Object.entries(value)) {
       if (!allowedOps.has(op)) {
@@ -348,9 +351,25 @@ export function createWhereBuilder(
         );
       }
 
+      if (opValue === null) {
+        if (!TO_ONE_RELATION_OPS.has(op)) {
+          throw new ShapeError(
+            `Null value for operator "${op}" is only valid on to-one relation operators (is, isNot), not on "${key}"`,
+          );
+        }
+        const existing = parentConditions[key];
+        if (existing && isPlainObject(existing)) {
+          (existing as Record<string, unknown>)[op] = null;
+        } else {
+          parentConditions[key] = { [op]: null };
+        }
+        hasForcedNull = true;
+        continue;
+      }
+
       if (!isPlainObject(opValue)) {
         throw new ShapeError(
-          `Relation filter operator "${op}" on "${key}" must be an object defining nested where fields`,
+          `Relation filter operator "${op}" on "${key}" must be an object defining nested where fields, or null for to-one existence checks`,
         );
       }
 
@@ -381,7 +400,7 @@ export function createWhereBuilder(
       }
     }
 
-    if (!hasClientOps && Object.keys(opForced).length === 0) {
+    if (!hasClientOps && Object.keys(opForced).length === 0 && !hasForcedNull) {
       throw new ShapeError(
         `Relation filter for "${key}" on model "${model}" produced no conditions. Define at least one nested field in the operator shape.`,
       );
@@ -391,7 +410,7 @@ export function createWhereBuilder(
       const clientOpKeys = Object.keys(opSchemas);
       const opObjSchema = z.object(opSchemas).strict();
 
-      if (Object.keys(opForced).length === 0) {
+      if (Object.keys(opForced).length === 0 && !hasForcedNull) {
         fieldSchemas[key] = opObjSchema
           .refine(
             (v) =>

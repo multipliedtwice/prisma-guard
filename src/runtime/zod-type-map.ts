@@ -20,6 +20,7 @@ const SCALAR_OPERATORS: Record<string, Set<string>> = {
     "gte",
     "lt",
     "lte",
+    "search",
   ]),
   Int: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
   Float: new Set(["equals", "not", "gt", "gte", "lt", "lte", "in", "notIn"]),
@@ -152,7 +153,7 @@ function createJsonOperatorSchema(
 ): z.ZodTypeAny {
   const jsonValue = z.unknown();
 
-  if (operator === "equals" || operator === "not") {
+  if (operator === "equals") {
     return !fieldMeta.isRequired ? z.union([jsonValue, z.null()]) : jsonValue;
   }
 
@@ -171,6 +172,42 @@ function createJsonOperatorSchema(
   throw new ShapeError(
     `Operator "${operator}" not supported for Json fields`,
   );
+}
+
+function buildNotFilterSchema(
+  fieldMeta: FieldMeta,
+  scalarSchema: z.ZodTypeAny,
+  enumMap: EnumMap,
+  scalarBase: ScalarBaseMap,
+): z.ZodTypeAny {
+  const allOps = getSupportedOperators(fieldMeta);
+  const nestedOps = allOps.filter((o) => o !== "not");
+
+  if (nestedOps.length === 0) return scalarSchema;
+
+  const nestedSchemas: Record<string, z.ZodTypeAny> = {};
+  for (const op of nestedOps) {
+    nestedSchemas[op] = createOperatorSchema(
+      fieldMeta,
+      op,
+      enumMap,
+      scalarBase,
+    ).optional();
+  }
+
+  const nestedKeys = Object.keys(nestedSchemas);
+  const nestedObj = z
+    .object(nestedSchemas)
+    .strict()
+    .refine(
+      (v) =>
+        nestedKeys.some(
+          (k) => (v as Record<string, unknown>)[k] !== undefined,
+        ),
+      { message: "not filter must specify at least one operator" },
+    );
+
+  return z.union([scalarSchema, nestedObj]);
 }
 
 export function createOperatorSchema(
@@ -199,10 +236,16 @@ export function createOperatorSchema(
       );
     }
     const enumSchema = z.enum(values as unknown as [string, ...string[]]);
-    if (operator === "equals" || operator === "not") {
+    if (operator === "equals") {
       return !fieldMeta.isRequired
         ? z.union([enumSchema, z.null()])
         : enumSchema;
+    }
+    if (operator === "not") {
+      const scalarSchema = !fieldMeta.isRequired
+        ? z.union([enumSchema, z.null()])
+        : enumSchema;
+      return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
     }
     const itemSchema = !fieldMeta.isRequired
       ? z.union([enumSchema, z.null()])
@@ -216,6 +259,13 @@ export function createOperatorSchema(
       throw new ShapeError(
         `Operator "${operator}" not supported for type "Json"`,
       );
+    }
+    if (operator === "not") {
+      const jsonValue = z.unknown();
+      const scalarSchema = !fieldMeta.isRequired
+        ? z.union([jsonValue, z.null()])
+        : jsonValue;
+      return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
     }
     return createJsonOperatorSchema(fieldMeta, operator);
   }
@@ -243,8 +293,14 @@ export function createOperatorSchema(
   const scalar = factory();
   const coerced = wrapWithInputCoercion(fieldMeta.type, false, scalar);
 
-  if (operator === "equals" || operator === "not") {
+  if (operator === "equals") {
     return !fieldMeta.isRequired ? z.union([coerced, z.null()]) : coerced;
+  }
+  if (operator === "not") {
+    const scalarSchema = !fieldMeta.isRequired
+      ? z.union([coerced, z.null()])
+      : coerced;
+    return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
   }
   if (operator === "in" || operator === "notIn") {
     const itemSchema = !fieldMeta.isRequired

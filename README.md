@@ -39,6 +39,7 @@ database
 * [Before / After prisma-guard](#before--after-prisma-guard)
 * [Schema annotations](#schema-annotations)
 * [The guard API](#the-guard-api)
+* [Relation writes in data shapes](#relation-writes-in-data-shapes)
 * [Logical combinators in where shapes](#logical-combinators-in-where-shapes)
 * [Relation filters in where shapes](#relation-filters-in-where-shapes)
 * [Mutation return projection](#mutation-return-projection)
@@ -401,7 +402,7 @@ await prisma.project
 
 In this example, `title` and `priority` use inline refines for custom validation and error messages, `status` uses `@zod` chains from the Prisma schema, `createdBy` is forced to `currentUserId`, and `isActive` is forced to `true` using the `force()` helper.
 
-Relation fields are not permitted in `data` shapes. Attempting to use a relation field in a data shape throws `ShapeError`. See [Limitations](#guarded-data-shapes-do-not-permit-relation-fields).
+Relation fields are supported in `data` shapes with a config object describing allowed nested write operations. See [Relation writes in data shapes](#relation-writes-in-data-shapes) for syntax and security implications.
 
 ### The `force()` helper
 
@@ -442,6 +443,15 @@ await prisma.project
 ```
 
 The client can only filter by `title`, sort by `title`, and take up to 100 rows. Everything else is rejected.
+
+### Take shorthand
+
+`take` accepts either an object or a number. When a number is provided, it serves as both the maximum and the default:
+```ts
+take: 50                          // equivalent to { max: 50, default: 50 }
+take: { max: 100, default: 25 }  // explicit max and default
+take: { max: 100 }               // max only, no default
+```
 
 ### Creates
 ```ts
@@ -602,11 +612,43 @@ Where shapes accept scalar field filters, relation filters (`some`, `every`, `no
 
 Shape config values are strictly validated at construction time. Fields in `orderBy`, `cursor`, `having`, `_count` (object form), `_avg`, `_sum`, `_min`, `_max` must have the value `true`. The `skip` config must be exactly `true`. Passing any other value (including `false`, numbers, or strings) throws `ShapeError`. This prevents accidental misconfiguration where a developer writes `{ orderBy: { title: false } }` expecting it to disable ordering — instead of silently enabling it, the shape is rejected.
 
-### Where DSL is a constrained Prisma subset
+### Where DSL: Prisma-compatible subset
 
-The where shape syntax supports a subset of Prisma's where filter API. Notable differences from raw Prisma where clauses:
+The where shape syntax supports a subset of Prisma's where filter API. This section documents both supported features and known differences.
 
-* The `not` operator accepts a scalar value only, not a nested filter object. Prisma's `{ not: { gt: 5 } }` form is not supported.
+**Supported operators:**
+
+All standard scalar operators are supported: `equals`, `not`, `contains`, `startsWith`, `endsWith`, `in`, `notIn`, `gt`, `gte`, `lt`, `lte`, `search`.
+
+The `not` operator accepts either a scalar value or a nested filter object:
+```ts
+where: {
+  age: { not: true },  // client can send { age: { not: 5 } } or { age: { not: { gt: 5 } } }
+}
+```
+
+The `search` operator is supported for String fields with `@@fulltext` indexes:
+```ts
+where: {
+  title: { search: true },
+}
+```
+
+**Relation existence checks with `is: null` / `isNot: null`:**
+
+To-one relation filters support null checks for testing relation existence. In the shape config, use `null` as the operator value to force a null check:
+```ts
+where: {
+  author: {
+    is: null,      // forced: always filters for records where author IS null
+  },
+}
+```
+
+This produces `{ author: { is: null } }` in the Prisma query. Since `null` in a shape is always a forced value (the client cannot control it), this is equivalent to a forced where condition.
+
+**Notable differences from raw Prisma where clauses:**
+
 * `AND` and `OR` in client input must be arrays with at least one element. Prisma accepts a single object for `AND`; prisma-guard requires an array. Empty arrays are rejected.
 * `NOT` in client input accepts a single object or an array with at least one element. Empty arrays are rejected.
 * Each combinator member must specify at least one condition with a defined value. Empty objects inside combinators (e.g. `{ AND: [{}] }`) are rejected when no forced values exist.
@@ -626,6 +668,109 @@ Read methods and mutation methods accept `undefined` or `null` as body input acr
 Reads: `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`, `aggregate`, `groupBy`
 
 Writes: `create`, `createMany`, `createManyAndReturn`, `update`, `updateMany`, `updateManyAndReturn`, `upsert`, `delete`, `deleteMany`
+
+---
+
+## Relation writes in data shapes
+
+Data shapes support relation fields with a config object describing which nested write operations the client may use. Each operation (`connect`, `create`, `disconnect`, etc.) is configured individually.
+
+> **⚠️ Security warning:** The automatic tenant scope extension only intercepts **top-level** operations. Nested writes through relation configs bypass scope entirely — no FK injection on nested creates, no tenant filtering on nested updates/deletes. If you use relation writes on scoped models, you must handle tenant isolation manually in your application code or enforce it via database constraints (e.g. RLS, triggers).
+
+### Syntax
+```ts
+await prisma.post
+  .guard({
+    data: {
+      title: true,
+      content: true,
+      tags: {
+        connect: { id: true },
+        disconnect: { id: true },
+      },
+    },
+  })
+  .update({
+    data: {
+      title: 'Updated',
+      tags: {
+        connect: [{ id: 'tag1' }, { id: 'tag2' }],
+        disconnect: [{ id: 'tag3' }],
+      },
+    },
+    where: { id: { equals: 'post1' } },
+  })
+```
+
+### Supported operations
+
+All 11 Prisma nested write operations are supported:
+
+| Operation         | To-one | To-many | Config type                                      |
+| ----------------- | ------ | ------- | ------------------------------------------------ |
+| `connect`         | yes    | yes     | `{ fieldName: true, ... }`                       |
+| `connectOrCreate` | yes    | yes     | `{ where: { ... }, create: { ... } }`            |
+| `create`          | yes    | yes     | `{ fieldName: true, ... }`                       |
+| `createMany`      | no     | yes     | `{ data: { fieldName: true, ... } }`             |
+| `disconnect`      | yes    | yes     | `true` (to-one) or `{ fieldName: true }` (to-many) |
+| `delete`          | yes    | yes     | `true` (to-one) or `{ fieldName: true }` (to-many) |
+| `set`             | no     | yes     | `{ fieldName: true, ... }`                       |
+| `update`          | yes    | yes     | `{ fieldName: true }` or `{ where: ..., data: ... }` |
+| `updateMany`      | no     | yes     | `{ where: { ... }, data: { ... } }`              |
+| `upsert`          | yes    | yes     | `{ create: { ... }, update: { ... } }`           |
+| `deleteMany`      | no     | yes     | `{ fieldName: true, ... }`                       |
+
+### Example with multiple operations
+```ts
+await prisma.user
+  .guard({
+    data: {
+      name: true,
+      posts: {
+        create: { title: true, content: true },
+        connect: { id: true },
+        disconnect: { id: true },
+        update: {
+          where: { id: true },
+          data: { title: true },
+        },
+      },
+    },
+  })
+  .update({
+    data: {
+      name: 'Updated Name',
+      posts: {
+        create: { title: 'New Post', content: 'Content' },
+        connect: [{ id: 'existing-post-id' }],
+      },
+    },
+    where: { id: { equals: userId } },
+  })
+```
+
+### Validation
+
+Each operation's config is validated at shape construction time:
+
+* Unknown operations throw `ShapeError`
+* Operations invalid for the relation cardinality throw `ShapeError` (e.g. `set` on to-one, `disconnect: true` on to-many)
+* Nested data fields are validated against the related model's type map — relation fields within nested data are not supported (no deep nesting)
+* `@zod` chains apply to nested data fields
+
+### Scope implications
+
+Nested writes bypass the scope extension because Prisma extension hooks only fire for top-level operations. This means:
+
+* **Nested creates** do not get scope FK injection — the related record will not have the tenant FK set automatically
+* **Nested updates/deletes** do not get tenant where conditions — they can affect records across tenants
+* **Nested connects** reference records by unique fields without tenant filtering
+
+For multi-tenant applications, consider:
+
+* Using database-level constraints (foreign keys, RLS policies) to enforce tenant boundaries on related models
+* Restricting relation write operations to `connect` and `disconnect` only (which reference existing records by ID)
+* Using forced values for tenant FK fields in nested create configs where possible
 
 ---
 
@@ -719,6 +864,23 @@ await prisma.user
 ```
 
 Each relation operator value is a nested where config for the related model. All where features — scalar operators, forced values, logical combinators, and nested relation filters — work recursively inside relation filters.
+
+### Null existence checks for to-one relations
+
+To-one relation operators support `null` for testing whether a relation exists:
+```ts
+await prisma.post
+  .guard({
+    where: {
+      author: {
+        is: null,     // forced: filter for posts where author IS null
+      },
+    },
+  })
+  .findMany(req.body)
+```
+
+In the shape config, `null` as an operator value is always forced — the client cannot control it. This is the standard Prisma pattern for checking to-one relation existence.
 
 ### Forced values in relation filters
 ```ts
@@ -1211,13 +1373,40 @@ await prisma.project
 
 All data shape value types (`true`, literal, `force()`, function) work in named shapes, context-dependent shapes, and single shapes.
 
+### Default fallback
+
+Named shape maps support a `default` key that acts as a fallback when no caller is provided or no pattern matches:
+```ts
+await prisma.project
+  .guard({
+    '/admin/projects': {
+      where: { title: { contains: true }, status: { equals: true } },
+      take: { max: 100 },
+    },
+    default: {
+      where: { title: { contains: true } },
+      take: { max: 20 },
+    },
+  }, req.headers['x-caller'])
+  .findMany(req.body)
+```
+
+The `default` fallback is used when:
+
+* No caller is provided (missing from both the second argument and context function)
+* The provided caller doesn't match any pattern
+
+Without a `default` key, missing or unmatched callers throw `CallerError`.
+
+The `default` fallback works consistently across both `.guard()` and `guard.query().parse()` API surfaces.
+
 ### Caller resolution order
 
 Caller is resolved in priority order:
 
 1. **Explicit argument** — `.guard(shapes, '/admin/projects')` always wins
 2. **Context function** — if the context object has a `caller` string property, it is used as the default
-3. **None** — if neither source provides a caller and the shape is a named map, `CallerError` is thrown
+3. **None** — if neither source provides a caller and the shape is a named map without a `default` key, `CallerError` is thrown
 
 This enables three usage patterns:
 ```ts
@@ -1247,7 +1436,7 @@ Matching is case-sensitive. Exact matches are checked first. If no exact match i
 
 ### Fail-closed behavior
 
-If `caller` is missing or doesn't match any pattern, the request is rejected with a `CallerError`. If a caller matches multiple parameterized patterns, it is also rejected with a `CallerError`.
+If `caller` is missing or doesn't match any pattern and no `default` key exists, the request is rejected with a `CallerError`. If a caller matches multiple parameterized patterns, it is also rejected with a `CallerError`.
 
 If a request body contains a `caller` field when using named shapes, it is rejected with a `CallerError` that directs the developer to use the second argument to `.guard()` or the context function instead.
 
@@ -1357,7 +1546,7 @@ This applies to all top-level operations on scoped models, including reads, writ
 ### What is NOT scoped
 
 * Nested reads loaded via `include` or `select` — use forced where conditions in the shape to restrict these (to-many relations only; see [Limitations](#limitations))
-* Nested writes — Prisma extension hooks operate on top-level operations only. Guarded data shapes reject relation fields entirely, so nested writes are only possible through raw (unguarded) Prisma calls.
+* Nested writes via relation write configs in data shapes — the scope extension hooks only fire for top-level operations (see [Relation writes in data shapes](#relation-writes-in-data-shapes))
 * `$queryRaw` and `$executeRaw` — raw SQL bypasses all guard protections
 
 ### Scope relation writes
@@ -1531,11 +1720,11 @@ These limitations are real and should be treated as part of the security model.
 
 `$queryRaw` and `$executeRaw` are not intercepted.
 
-### Nested writes are not intercepted
+### Nested writes are not scope-intercepted
 
-Prisma extension hooks operate on top-level operations. Nested writes do not trigger separate scope interception.
+Prisma extension hooks operate on top-level operations. Relation write configs in data shapes (see [Relation writes in data shapes](#relation-writes-in-data-shapes)) produce nested write operations that bypass the scope extension entirely. Nested creates do not receive scope FK injection. Nested updates and deletes do not receive tenant where conditions.
 
-Guarded data shapes reject relation fields entirely — using a relation field in a `data`, `create`, or `update` shape throws `ShapeError`. This means nested writes (e.g. `{ author: { connect: { id: '...' } } }`) are only possible through raw (unguarded) Prisma calls. The guard layer prevents them in guarded mutations, not by intercepting nested writes, but by refusing to include relation fields in the data shape.
+For multi-tenant applications using relation writes, enforce tenant boundaries via database constraints (RLS, foreign key constraints, triggers) or application-level validation.
 
 ### Nested reads via include are not scope-filtered
 
@@ -1563,6 +1752,12 @@ If a model references a scope root through composite foreign keys, that specific
 
 Handle these models explicitly via shape rules.
 
+### Compound unique selectors
+
+Guard currently records unique constraints as arrays of field names but does not generate the named compound selector schemas that Prisma uses for `@@unique` constraints. For example, `@@unique([firstName, lastName])` requires the selector `{ firstName_lastName: { firstName: "A", lastName: "B" } }`, but guard produces flat `{ firstName: "A", lastName: "B" }` output. This affects `findUnique`, `update`, `delete`, `upsert`, `connect`, and `connectOrCreate` with compound unique constraints.
+
+Single-field unique constraints work correctly. Compound unique support is planned.
+
 ### Cursor fields must cover a unique constraint
 
 Prisma requires cursor-based pagination to use uniquely-identifiable fields. Guard enforces this at shape construction time: cursor fields must cover at least one unique constraint from the model. Non-unique cursor shapes are rejected with `ShapeError`.
@@ -1579,9 +1774,9 @@ Prisma requires cursor-based pagination to use uniquely-identifiable fields. Gua
 
 The generator writes `index.ts` and `client.ts` using `.js` extension imports. A TypeScript-capable build pipeline with ESM-aware module resolution is required (`"moduleResolution": "NodeNext"` or `"Bundler"` in `tsconfig.json`). The classic `"moduleResolution": "node"` setting is not compatible.
 
-### `having` is limited to scalar fields
+### `having` supports logical combinators
 
-Guard `having` shapes support scalar field filters with their type-appropriate operators. Aggregate-level having expressions (e.g. `_count`, `_avg` inside having) are not supported.
+Guard `having` shapes support `AND`, `OR`, and `NOT` combinators for composing complex grouped aggregation filters. The fields available inside combinators are the same fields defined in the having shape config.
 
 ### Json fields accept any JSON-serializable value
 
@@ -1611,7 +1806,7 @@ Prisma supports negative `take` for reverse cursor pagination. prisma-guard rest
 
 ### `skip` in shape config is a permission flag
 
-`skip: true` in a shape config means the client is allowed to provide a `skip` value. The actual `skip` value must be a non-negative integer. The value must be exactly `true` — other truthy values are rejected with `ShapeError`. This is consistent with other shape flags but differs from `take`, which uses `{ max, default? }` syntax.
+`skip: true` in a shape config means the client is allowed to provide a `skip` value. The actual `skip` value must be a non-negative integer. The value must be exactly `true` — other truthy values are rejected with `ShapeError`. This is consistent with other shape flags but differs from `take`, which uses `{ max, default? }` syntax or a number shorthand.
 
 ### `guard.input()` defaults to allowing null for nullable fields
 
@@ -1624,10 +1819,6 @@ The `Decimal` base type accepts JavaScript `number`, decimal string, and Decimal
 ### `skipDuplicates` is supported for batch create methods
 
 `createMany` and `createManyAndReturn` accept `skipDuplicates: boolean` in the request body. This is passed through to Prisma without shape-level configuration. It is not available on `create`.
-
-### Guarded data shapes do not permit relation fields
-
-Relation fields in `data`, `create`, and `update` shapes are rejected with `ShapeError`. Nested writes (e.g. `{ author: { connect: { id: '...' } } }`) are only possible through raw (unguarded) Prisma calls. The guard layer does not intercept or validate nested writes — it prevents them entirely in guarded mutations.
 
 ### Conflicting forced where values are rejected
 
@@ -1691,6 +1882,8 @@ All guard errors include `status` and `code` properties for HTTP response mappin
 | `CallerError` | 400    | `CALLER_UNKNOWN` |
 | `PolicyError` | 403    | `POLICY_DENIED`  |
 
+Note: Prisma errors (`PrismaClientKnownRequestError`, `PrismaClientValidationError`, etc.) propagate through the guard layer unmodified. Error handlers should be prepared to handle both guard errors (with `status`/`code` properties) and Prisma errors.
+
 ### ZodError wrapping
 
 By default, Zod validation failures throw a raw `ZodError`. This means error handling code must check for both `ZodError` and guard error types.
@@ -1743,7 +1936,7 @@ For create operations, fields tracked in `ZOD_DEFAULTS` that are omitted from th
 
 For fields that ARE listed in the data shape with `true` and have `@zod .default(...)` or `@zod .catch(...)`, the runtime skips wrapping the schema with `.optional()` in create mode. This preserves the Zod default/catch behavior: omitting the field from client input triggers the default rather than passing `undefined` through.
 
-Caller routing is resolved before method execution: the explicit `caller` argument takes priority, then `contextFn().caller`, then absent (which is fine for single shapes but throws `CallerError` for named shape maps).
+Caller routing is resolved before method execution: the explicit `caller` argument takes priority, then `contextFn().caller`, then absent (which is fine for single shapes but throws `CallerError` for named shape maps without a `default` key).
 
 The context function is validated on every code path that consumes it — scope injection, caller resolution, and dynamic shape evaluation all enforce the plain-object contract and throw `PolicyError` for invalid returns. Additionally, if a context key matches a known scope root but has a non-primitive value, `PolicyError` is thrown immediately rather than silently dropping the scope.
 
@@ -1796,7 +1989,7 @@ For upsert, `create` and `update` data schemas are cached independently under na
 | `onMissingScopeContext = "ignore"`      | scope bypassed for missing roots; present roots still enforced |
 | unsafe scoped `findUnique`             | reject recommended                                    |
 | invalid `@zod` directive               | error by default                                      |
-| missing `caller` in named shapes       | error always                                          |
+| missing `caller` in named shapes       | error unless `default` key exists                     |
 | `caller` in request body               | error always                                          |
 | `data` in read shape                   | error always                                          |
 | `data` in upsert shape                 | error always (use `create`/`update`)                  |
@@ -1832,6 +2025,7 @@ For upsert, `create` and `update` data schemas are cached independently under na
 | `@zod .default()`/`.catch()` field omitted from shape | auto-injected as forced value             |
 | read shape with select/include, client omits | auto-applied as default projection              |
 | mutation shape with select/include, client omits | full payload unless enforceProjection enabled |
+| nested writes via relation configs     | bypass scope extension (top-level only)               |
 
 ---
 
@@ -1898,6 +2092,7 @@ Node 22
 9. Upsert uses `create`/`update` keys, not `data` — matches Prisma's own API shape
 10. Shape config values are validated strictly — `true` means enabled, anything else is rejected
 11. Read shapes with projection define both the security boundary and the default response — no client duplication needed
+12. Nested writes are validated but not scope-intercepted — document clearly and rely on database constraints for tenant boundaries
 
 ---
 
@@ -1925,12 +2120,14 @@ Node 22
 | ZodError wrapping                          | opt-in         | n/a         |
 | Logical combinators in where               | yes            | manual      |
 | Relation filters in where                  | yes            | manual      |
+| Relation writes in data shapes             | yes            | manual      |
 | Empty relation filter rejection            | yes            | n/a         |
 | Empty projection shape rejection           | yes            | n/a         |
 | Forced where conflict detection            | yes            | n/a         |
 | Forced boolean values via `force()`        | yes            | n/a         |
 | Strict Decimal mode                        | opt-in         | n/a         |
 | `@zod .default()`/`.catch()` auto-injection | yes           | n/a         |
+| Nested write scope enforcement             | no (top-level only) | no     |
 
 ---
 
@@ -1938,8 +2135,9 @@ Node 22
 
 Possible future improvements:
 
-* optional nested-write enforcement helpers
+* compound unique selector support
 * richer relation-level policies
+* nested write scope enforcement helpers
 * adapter integrations for SQL-backed runtimes
 * model-specific generated types for stronger compile-time shape validation
 * structured JSON field validation via schema annotations

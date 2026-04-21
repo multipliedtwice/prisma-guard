@@ -117,26 +117,30 @@ export function createArgsBuilder(
     return z.union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))]).optional()
   }
 
-  function buildTakeSchema(config: { max: number; default?: number }): z.ZodTypeAny {
-    if (!Number.isFinite(config.max) || !Number.isInteger(config.max)) {
-      throw new ShapeError(`take max must be a finite integer, got ${config.max}`)
+  function buildTakeSchema(config: number | { max: number; default?: number }): z.ZodTypeAny {
+    const normalized = typeof config === 'number'
+      ? { max: config, default: config }
+      : config
+
+    if (!Number.isFinite(normalized.max) || !Number.isInteger(normalized.max)) {
+      throw new ShapeError(`take max must be a finite integer, got ${normalized.max}`)
     }
-    if (config.max < 1) {
-      throw new ShapeError(`take max must be at least 1, got ${config.max}`)
+    if (normalized.max < 1) {
+      throw new ShapeError(`take max must be at least 1, got ${normalized.max}`)
     }
-    if (config.default !== undefined) {
-      if (!Number.isFinite(config.default) || !Number.isInteger(config.default)) {
-        throw new ShapeError(`take default must be a finite integer, got ${config.default}`)
+    if (normalized.default !== undefined) {
+      if (!Number.isFinite(normalized.default) || !Number.isInteger(normalized.default)) {
+        throw new ShapeError(`take default must be a finite integer, got ${normalized.default}`)
       }
-      if (config.default < 1) {
-        throw new ShapeError(`take default must be at least 1, got ${config.default}`)
+      if (normalized.default < 1) {
+        throw new ShapeError(`take default must be at least 1, got ${normalized.default}`)
       }
-      if (config.default > config.max) {
+      if (normalized.default > normalized.max) {
         throw new ShapeError('take default cannot exceed max')
       }
-      return z.number().int().min(1).max(config.max).default(config.default)
+      return z.number().int().min(1).max(normalized.max).default(normalized.default)
     }
-    return z.number().int().min(1).max(config.max).optional()
+    return z.number().int().min(1).max(normalized.max).optional()
   }
 
   function buildCursorSchema(
@@ -256,12 +260,25 @@ export function createArgsBuilder(
     }
 
     const havingFieldKeys = Object.keys(fieldSchemas)
-    return z.object(fieldSchemas).strict()
-      .refine(
-        (v) => havingFieldKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
-        { message: 'having must specify at least one field' },
-      )
-      .optional()
+
+    const havingSchema: z.ZodTypeAny = z.lazy(() => {
+      const allSchemas: Record<string, z.ZodTypeAny> = { ...fieldSchemas }
+      allSchemas['AND'] = z.preprocess(coerceToArray, z.array(havingSchema).min(1)).optional()
+      allSchemas['OR'] = z.preprocess(coerceToArray, z.array(havingSchema).min(1)).optional()
+      allSchemas['NOT'] = z.union([
+        havingSchema,
+        z.preprocess(coerceToArray, z.array(havingSchema).min(1)),
+      ]).optional()
+
+      const allKeys = [...havingFieldKeys, 'AND', 'OR', 'NOT']
+      return z.object(allSchemas).strict()
+        .refine(
+          (v) => allKeys.some(k => (v as Record<string, unknown>)[k] !== undefined),
+          { message: 'having must specify at least one field or combinator' },
+        )
+    })
+
+    return havingSchema.optional()
   }
 
   function buildAggregateFieldSchema(

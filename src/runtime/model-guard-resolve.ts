@@ -91,16 +91,34 @@ export function resolveShape(
   }
 
   if (typeof caller !== 'string') {
+    if ('default' in namedMap) {
+      const shapeOrFn = namedMap['default']
+      const wasDynamic = typeof shapeOrFn === 'function'
+      const shape = wasDynamic
+        ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape, contextFn)
+        : shapeOrFn as GuardShape
+      return { shape, body: parsed, matchedKey: 'default', wasDynamic }
+    }
+
     const patterns = Object.keys(namedMap)
     throw new CallerError(
       `Missing caller. This guard uses named shape routing with keys: ${patterns.map(k => `"${k}"`).join(', ')}. ` +
-      `Provide caller as second argument to .guard() or set "caller" in the context function.`,
+      `Provide caller as second argument to .guard() or set "caller" in the context function, or add a "default" variant.`,
     )
   }
 
   const patterns = Object.keys(namedMap)
   const matched = matchCallerPattern(patterns, caller)
   if (!matched) {
+    if ('default' in namedMap) {
+      const shapeOrFn = namedMap['default']
+      const wasDynamic = typeof shapeOrFn === 'function'
+      const shape = wasDynamic
+        ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape, contextFn)
+        : shapeOrFn as GuardShape
+      return { shape, body: parsed, matchedKey: 'default', wasDynamic }
+    }
+
     throw new CallerError(
       `Unknown caller: "${caller}". Allowed: ${patterns.map(k => `"${k}"`).join(', ')}`,
     )

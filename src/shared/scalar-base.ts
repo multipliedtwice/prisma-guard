@@ -130,11 +130,11 @@ export function wrapWithInputCoercion(
       break;
     case "Int":
       itemCoercion = z.union([
-        z.number().int(),
+        z.number().transform((v) => Math.trunc(v)).pipe(z.number().int()),
         z
           .string()
-          .regex(/^-?\d+$/)
-          .transform(Number),
+          .regex(/^-?\d+(\.\d+)?$/)
+          .transform((v) => Math.trunc(Number(v))),
       ]);
       break;
     case "Float":

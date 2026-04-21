@@ -101,7 +101,13 @@ export function createScalarBase(strictDecimal: boolean): ScalarBaseMap {
     Boolean: () => z.boolean(),
     DateTime: () =>
       z
-        .union([z.date(), z.string().datetime({ offset: true })])
+        .union([
+          z.date(),
+          z.string().refine(
+            (s) => !isNaN(Date.parse(s)),
+            "Invalid date string",
+          ),
+        ])
         .pipe(z.coerce.date()),
     Json: () =>
       z

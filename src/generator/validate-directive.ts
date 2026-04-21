@@ -116,10 +116,7 @@ export function validateDirective(raw: string): ValidationResult {
     }
     if (peek() === 'e' || peek() === 'E') {
       advance()
-      if (peek() === '-') advance()
-      if (peek() === '+') {
-        return { valid: false, reason: 'Invalid number: "+" not allowed in exponent' }
-      }
+      if (peek() === '-' || peek() === '+') advance()
       if (!/[0-9]/.test(peek())) {
         return { valid: false, reason: 'Invalid number: expected digit in exponent' }
       }

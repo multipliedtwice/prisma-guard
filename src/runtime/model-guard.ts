@@ -404,8 +404,10 @@ export function createModelGuardExtension(config: {
         continue;
       }
 
-      if (isPlainObject(value) && "equals" in value) {
-        equalityFields.add(key);
+      if (isPlainObject(value)) {
+        if ("equals" in value) {
+          equalityFields.add(key);
+        }
         continue;
       }
 

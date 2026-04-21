@@ -35,14 +35,40 @@ function buildAndConditions(
   return { AND: conditions };
 }
 
+function stripScopeFksFromWhere(
+  where: Record<string, unknown>,
+  scopeFks: Set<string>,
+  log: GuardLogger,
+  model: string,
+): Record<string, unknown> {
+  let result = where;
+  for (const fk of scopeFks) {
+    if (fk in result) {
+      if (result === where) result = { ...where };
+      log.warn(
+        `prisma-guard: Scope FK "${fk}" found in where for model "${model}". Stripped in favor of scope context.`,
+      );
+      delete result[fk];
+    }
+  }
+  return result;
+}
+
 function buildScopedUniqueWhere(
   existingWhere: Record<string, unknown> | undefined,
   conditions: Record<string, unknown>[],
+  scopeFks: Set<string>,
+  log: GuardLogger,
+  model: string,
 ): Record<string, unknown> {
-  if (!existingWhere) {
+  let cleaned = existingWhere;
+  if (cleaned) {
+    cleaned = stripScopeFksFromWhere(cleaned, scopeFks, log, model);
+  }
+  if (!cleaned || Object.keys(cleaned).length === 0) {
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   }
-  const { AND: existingAnd, ...topLevel } = existingWhere;
+  const { AND: existingAnd, ...topLevel } = cleaned;
   const allConditions: unknown[] = [];
   if (existingAnd !== undefined) {
     if (Array.isArray(existingAnd)) {
@@ -175,6 +201,13 @@ export function createScopeExtension<TRoots extends string>(
     );
   }
 
+  const scopeFkSets = new Map<string, Set<string>>();
+  for (const [model, entries] of Object.entries(scopeMap)) {
+    const fks = new Set<string>();
+    for (const entry of entries) fks.add(entry.fk);
+    scopeFkSets.set(model, fks);
+  }
+
   return {
     name: "prisma-guard-scope",
     query: {
@@ -208,7 +241,7 @@ export function createScopeExtension<TRoots extends string>(
         if (missingRoots.length > 0) {
           if (isMutation || guardConfig.onMissingScopeContext === "error") {
             throw new PolicyError(
-              `Missing scope context for model "${model}": roots ${missingRoots.map((r) => `"${r}"`).join(", ")} not provided. All scope roots must be present.`,
+              `prisma-guard: Missing scope context for model "${model}": roots ${missingRoots.map((r) => `"${r}"`).join(", ")} not provided. All scope roots must be present.`,
             );
           }
           if (guardConfig.onMissingScopeContext === "warn") {
@@ -225,11 +258,12 @@ export function createScopeExtension<TRoots extends string>(
         const overrides = Object.fromEntries(
           presentScopes.map((s) => [s.fk, ctx[s.root]]),
         );
+        const modelFks = scopeFkSets.get(model) ?? new Set<string>();
 
         const nextArgs = { ...args };
 
         if (operation === "upsert") {
-          nextArgs.where = buildScopedUniqueWhere(args.where, conditions);
+          nextArgs.where = buildScopedUniqueWhere(args.where, conditions, modelFks, log, model);
           if (args.create !== undefined && args.create !== null) {
             if (typeof args.create !== "object" || Array.isArray(args.create)) {
               throw new ShapeError(`upsert expects create to be an object`);
@@ -268,7 +302,7 @@ export function createScopeExtension<TRoots extends string>(
         if (FIND_UNIQUE_OPS.has(operation)) {
           if (findUniqueMode === "reject") {
             throw new PolicyError(
-              `Scoped model "${model}" does not allow ${operation} via scope extension (findUniqueMode is "reject"). Use findFirst with explicit where conditions instead.`,
+              `prisma-guard: Scoped model "${model}" does not allow ${operation} via scope extension (findUniqueMode is "reject"). Use findFirst with explicit where conditions instead.`,
             );
           }
           return handleFindUnique(
@@ -345,7 +379,7 @@ export function createScopeExtension<TRoots extends string>(
         }
 
         if (UNIQUE_MUTATION_OPS.has(operation)) {
-          nextArgs.where = buildScopedUniqueWhere(args.where, conditions);
+          nextArgs.where = buildScopedUniqueWhere(args.where, conditions, modelFks, log, model);
           if (args.data !== undefined && args.data !== null) {
             if (typeof args.data !== "object" || Array.isArray(args.data)) {
               throw new ShapeError(`${operation} expects data to be an object`);
@@ -387,7 +421,7 @@ export function createScopeExtension<TRoots extends string>(
         }
 
         throw new ShapeError(
-          `Unknown operation "${operation}" on scoped model "${model}". Update prisma-guard to handle this operation.`,
+          `prisma-guard: Unknown operation "${operation}" on scoped model "${model}". Update prisma-guard to handle this operation.`,
         );
       },
     },
@@ -480,7 +514,7 @@ async function handleFindUnique(
     if (!looseEqual(verifyObj[fk], value, log, fk)) {
       if (operation === "findUniqueOrThrow") {
         throw new PolicyError(
-          `Record on model "${model}" not accessible in current scope`,
+          `prisma-guard: Record on model "${model}" not accessible in current scope`,
         );
       }
       return null;

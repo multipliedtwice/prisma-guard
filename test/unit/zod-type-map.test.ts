@@ -101,7 +101,9 @@ describe("createBaseType", () => {
     expect(d).toBeInstanceOf(Date);
     expect(schema.parse("2024-01-01T12:30:00+05:00")).toBeInstanceOf(Date);
     expect(schema.parse(new Date("2024-01-01"))).toBeInstanceOf(Date);
-    expect(() => schema.parse("2024-01-01")).toThrow();
+    expect(schema.parse("2024-01-01")).toBeInstanceOf(Date);
+    expect(schema.parse("2024-01-01T00:00:00")).toBeInstanceOf(Date);
+    expect(() => schema.parse("not-a-date")).toThrow();
     expect(() => schema.parse(true)).toThrow();
     expect(() => schema.parse(42)).toThrow();
   });

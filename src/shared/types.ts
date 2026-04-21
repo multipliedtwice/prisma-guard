@@ -179,5 +179,5 @@ export type GuardedModel<TDelegate> = {
   [K in GuardableMethodName as K extends keyof TDelegate ? K : never]:
     ExtractReturn<TDelegate, K> extends never
       ? never
-      : (body: unknown) => ExtractReturn<TDelegate, K>
+      : (body?: unknown) => ExtractReturn<TDelegate, K>
 }

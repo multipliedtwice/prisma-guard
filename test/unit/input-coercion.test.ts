@@ -80,9 +80,11 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse(-10)).toBe(-10);
     });
 
-    it("rejects non-integer numbers", () => {
-      expect(() => schema.parse(3.14)).toThrow();
-      expect(() => schema.parse(0.1)).toThrow();
+    it("truncates non-integer numbers to integers", () => {
+      expect(schema.parse(3.14)).toBe(3);
+      expect(schema.parse(0.1)).toBe(0);
+      expect(schema.parse(-2.9)).toBe(-2);
+      expect(schema.parse(9.999)).toBe(9);
     });
 
     it("coerces valid integer strings to number", () => {
@@ -92,8 +94,13 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse("999999")).toBe(999999);
     });
 
-    it("rejects non-integer strings", () => {
-      expect(() => schema.parse("3.14")).toThrow();
+    it("truncates decimal strings to integer", () => {
+      expect(schema.parse("3.14")).toBe(3);
+      expect(schema.parse("0.9")).toBe(0);
+      expect(schema.parse("-2.7")).toBe(-2);
+    });
+
+    it("rejects non-numeric strings", () => {
       expect(() => schema.parse("abc")).toThrow();
       expect(() => schema.parse("")).toThrow();
       expect(() => schema.parse("12abc")).toThrow();
@@ -135,8 +142,11 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse([1, "2", 3])).toEqual([1, 2, 3]);
     });
 
-    it("rejects arrays with non-integer values", () => {
-      expect(() => schema.parse([1, "3.14"])).toThrow();
+    it("truncates decimal strings in arrays to integers", () => {
+      expect(schema.parse([1, "3.14"])).toEqual([1, 3]);
+    });
+
+    it("rejects arrays with non-numeric strings", () => {
       expect(() => schema.parse([1, "abc"])).toThrow();
     });
   });
@@ -333,6 +343,16 @@ describe("wrapWithInputCoercion", () => {
 
       it("accepts ISO datetime strings with Z", () => {
         const result = schema.parse("2024-01-01T12:30:00Z");
+        expect(result).toBeInstanceOf(Date);
+      });
+
+      it("accepts date-only strings", () => {
+        const result = schema.parse("2024-01-01");
+        expect(result).toBeInstanceOf(Date);
+      });
+
+      it("accepts datetime strings without offset", () => {
+        const result = schema.parse("2024-01-01T00:00:00");
         expect(result).toBeInstanceOf(Date);
       });
 

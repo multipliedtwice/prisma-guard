@@ -54,6 +54,7 @@ describe('validateDirective', () => {
       ['.min(-3.14)'],
       ['.min(1e2)'],
       ['.min(1e-2)'],
+      ['.min(1e+2)'],
     ])('accepts numeric args: %s', (input) => {
       expect(validateDirective(input)).toMatchObject({ valid: true })
     })
@@ -268,9 +269,9 @@ describe('validateDirective', () => {
       expect(r.valid === false && r.reason).toContain('"+"')
     })
 
-    it('rejects + in exponent', () => {
+    it('accepts + in exponent', () => {
       const r = validateDirective('.min(1e+2)')
-      expect(r.valid).toBe(false)
+      expect(r.valid).toBe(true)
     })
 
     it('rejects missing parens', () => {

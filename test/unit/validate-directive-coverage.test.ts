@@ -19,8 +19,12 @@ describe('validate-directive coverage: uncovered error branches', () => {
     expect(result.valid).toBe(false)
   })
 
-  it('rejects exponent with + sign', () => {
-    expectInvalid('.min(1e+2)', /\+/)
+  it('accepts exponent with + sign', () => {
+    const result = validateDirective('.min(1e+2)')
+    expect(result.valid).toBe(true)
+    if (result.valid) {
+      expect(result.methods).toEqual(['min'])
+    }
   })
 
   it('rejects NaN as argument', () => {

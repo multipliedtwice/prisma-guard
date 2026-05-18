@@ -178,9 +178,6 @@ type CountShape<
   select?: TypedCountSelect<TM, M>
 }
 
-// Keep RequireKeys branches bound to concrete operation literals.
-// If O stays a generic union here, keyof BaseOperationShape<..., O, ...>
-// is deferred and TypeScript cannot prove that "where" or "by" is a key.
 export type OperationShape<
   TM extends TypeMapConst,
   M extends keyof TM,
@@ -208,4 +205,5 @@ export type ShapeFn<S, TCtx> = (ctx: TCtx) => S
 export type ShapeOrFn<S, TCtx> = S | ShapeFn<S, TCtx>
 
 export type ShapeInput<S, TCtx = unknown> =
-  Record<string, ShapeOrFn<S, TCtx>>
+  | ShapeOrFn<S, TCtx>
+  | Record<string, ShapeOrFn<S, TCtx>>

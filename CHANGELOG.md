@@ -1,3 +1,10 @@
+## [1.22.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.0...v1.22.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* remove unused namedShapes and NamedShapeMap from typed-shape.ts ([8ef0fa5](https://github.com/multipliedtwice/prisma-guard/commit/8ef0fa510462f47086c6280f13f1b408f8bb4da2))
+
 # [1.22.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.21.1...v1.22.0) (2026-05-18)
 
 

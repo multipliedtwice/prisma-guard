@@ -1,3 +1,10 @@
+## [1.22.2](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.1...v1.22.2) (2026-05-18)
+
+
+### Bug Fixes
+
+* refine OperationShape type and enhance ShapeInput structure for better type handling ([6cb3de8](https://github.com/multipliedtwice/prisma-guard/commit/6cb3de8c8c4a131613fbafb4144f50e6fe7a921f))
+
 ## [1.22.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.0...v1.22.1) (2026-05-18)
 
 

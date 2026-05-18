@@ -30,3 +30,21 @@ export type {
   GuardInput,
   GuardedModel,
 } from '../shared/types.js'
+export { namedShapes } from '../shared/typed-shape.js'
+export type {
+  TypeMapConst,
+  FieldMetaConst,
+  ShapeDepth,
+  TypedGuardShape,
+  TypedShapeProps,
+  OperationShape,
+  ShapeInput,
+  NamedShapeMap,
+  TypedWhere,
+  TypedProjection,
+  TypedInclude,
+  TypedCountSelect,
+  NumericFields,
+  ComparableFields,
+} from '../shared/typed-shape.js'
+export type { OperationName } from '../shared/operation-shape-keys.js'

@@ -1,11 +1,19 @@
-export const SHAPE_CONFIG_KEYS = new Set([
+export const SHAPE_CONFIG_KEY_LIST = [
   'where', 'include', 'select', 'orderBy', 'cursor', 'take', 'skip',
   'distinct', 'having', '_count', '_avg', '_sum', '_min', '_max', 'by',
-])
+] as const
 
-export const GUARD_SHAPE_KEYS = new Set([
-  'data', 'create', 'update', ...SHAPE_CONFIG_KEYS,
-])
+export type ShapeConfigKey = (typeof SHAPE_CONFIG_KEY_LIST)[number]
+
+export const SHAPE_CONFIG_KEYS = new Set<string>(SHAPE_CONFIG_KEY_LIST)
+
+export const GUARD_SHAPE_KEY_LIST = [
+  'data', 'create', 'update', ...SHAPE_CONFIG_KEY_LIST,
+] as const
+
+export type GuardShapeKey = (typeof GUARD_SHAPE_KEY_LIST)[number]
+
+export const GUARD_SHAPE_KEYS = new Set<string>(GUARD_SHAPE_KEY_LIST)
 
 export const COMBINATOR_KEYS = new Set(['AND', 'OR', 'NOT'])
 

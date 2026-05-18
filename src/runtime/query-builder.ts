@@ -11,7 +11,7 @@ import type {
   OrderByFieldConfig,
 } from "../shared/types.js";
 import { ShapeError, CallerError } from "../shared/errors.js";
-import { SHAPE_CONFIG_KEYS, GUARD_SHAPE_KEYS } from "../shared/constants.js";
+import { SHAPE_CONFIG_KEYS } from "../shared/constants.js";
 import { matchCallerPattern } from "../shared/match-caller.js";
 import { isPlainObject, coerceToArray } from "../shared/utils.js";
 import { requireContext } from "./policy.js";
@@ -34,67 +34,10 @@ import type {
   BuiltSelectResult,
 } from "./query-builder-projection.js";
 import type { ScalarBaseMap } from "../shared/scalar-base.js";
+import { READ_METHOD_ALLOWED_ARGS } from "../shared/operation-shape-keys.js";
 
-const METHOD_ALLOWED_ARGS: Record<QueryMethod, Set<string>> = {
-  findMany: new Set([
-    "where",
-    "include",
-    "select",
-    "orderBy",
-    "cursor",
-    "take",
-    "skip",
-    "distinct",
-  ]),
-  findFirst: new Set([
-    "where",
-    "include",
-    "select",
-    "orderBy",
-    "cursor",
-    "take",
-    "skip",
-    "distinct",
-  ]),
-  findFirstOrThrow: new Set([
-    "where",
-    "include",
-    "select",
-    "orderBy",
-    "cursor",
-    "take",
-    "skip",
-    "distinct",
-  ]),
-  findUnique: new Set(["where", "include", "select"]),
-  findUniqueOrThrow: new Set(["where", "include", "select"]),
-  count: new Set(["where", "select", "cursor", "orderBy", "skip", "take"]),
-  aggregate: new Set([
-    "where",
-    "orderBy",
-    "cursor",
-    "take",
-    "skip",
-    "_count",
-    "_avg",
-    "_sum",
-    "_min",
-    "_max",
-  ]),
-  groupBy: new Set([
-    "where",
-    "by",
-    "having",
-    "_count",
-    "_avg",
-    "_sum",
-    "_min",
-    "_max",
-    "orderBy",
-    "take",
-    "skip",
-  ]),
-};
+const METHOD_ALLOWED_ARGS: Record<QueryMethod, Set<string>> =
+  READ_METHOD_ALLOWED_ARGS as Record<QueryMethod, Set<string>>;
 
 const UNIQUE_WHERE_METHODS: Set<QueryMethod> = new Set([
   "findUnique",

@@ -7,6 +7,7 @@ import { emitScopeMap } from './emit-scope-map.js'
 import { emitZodChains } from './emit-zod-chains.js'
 import { emitTypeMap } from './emit-type-map.js'
 import { emitClient } from './emit-client.js'
+import { emitTypedShapes } from './emit-typed-shapes.js'
 
 const VALID_ON_INVALID_ZOD = new Set<'error' | 'warn'>(['error', 'warn'])
 const VALID_ON_AMBIGUOUS_SCOPE = new Set<'error' | 'warn' | 'ignore'>(['error', 'warn', 'ignore'])
@@ -14,6 +15,7 @@ const VALID_ON_MISSING_SCOPE_CONTEXT = new Set<'error' | 'warn' | 'ignore'>(['er
 const VALID_FIND_UNIQUE_MODE = new Set<'verify' | 'reject'>(['verify', 'reject'])
 const VALID_ON_SCOPE_RELATION_WRITE = new Set<'error' | 'warn' | 'strip'>(['error', 'warn', 'strip'])
 const VALID_BOOLEAN_CONFIG = new Set(['true', 'false'])
+const VALID_TYPED_GUARD_DEPTH = new Set(['0', '1', '2', '3'])
 
 function validateConfigEnum<T extends string>(
   name: string,
@@ -36,6 +38,16 @@ function validateBooleanConfig(name: string, raw: string | undefined, fallback: 
     )
   }
   return value === 'true'
+}
+
+function validateDepthConfig(raw: string | undefined): 0 | 1 | 2 | 3 {
+  const value = raw ?? '1'
+  if (!VALID_TYPED_GUARD_DEPTH.has(value)) {
+    throw new Error(
+      `prisma-guard: Invalid generator config "typedGuardRelationDepth": "${value}". Allowed values: 0, 1, 2, 3`,
+    )
+  }
+  return Number(value) as 0 | 1 | 2 | 3
 }
 
 function emitZodDefaults(defaults: Record<string, string[]>): string {
@@ -72,6 +84,8 @@ generatorHandler({
     const onScopeRelationWrite = validateConfigEnum('onScopeRelationWrite', (config.onScopeRelationWrite as string) ?? 'error', VALID_ON_SCOPE_RELATION_WRITE)
     const strictDecimal = validateBooleanConfig('strictDecimal', config.strictDecimal as string | undefined, false)
     const enforceProjection = validateBooleanConfig('enforceProjection', config.enforceProjection as string | undefined, false)
+    const typedGuardShapes = validateBooleanConfig('typedGuardShapes', config.typedGuardShapes as string | undefined, true)
+    const typedGuardRelationDepth = validateDepthConfig(config.typedGuardRelationDepth as string | undefined)
 
     const dmmf = options.dmmf
 
@@ -103,5 +117,13 @@ generatorHandler({
 
     const clientSource = emitClient(dmmf)
     writeFileSync(join(output, 'client.ts'), clientSource, 'utf-8')
+
+    if (typedGuardShapes) {
+      writeFileSync(
+        join(output, 'shapes.ts'),
+        emitTypedShapes(dmmf, typedGuardRelationDepth),
+        'utf-8',
+      )
+    }
   },
 })

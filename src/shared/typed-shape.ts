@@ -207,19 +207,5 @@ export type ShapeFn<S, TCtx> = (ctx: TCtx) => S
 
 export type ShapeOrFn<S, TCtx> = S | ShapeFn<S, TCtx>
 
-declare const namedShapeBrand: unique symbol
-
-export type NamedShapeMap<S, TCtx> =
-  Record<string, ShapeOrFn<S, TCtx>> & {
-    readonly [namedShapeBrand]: true
-  }
-
-export function namedShapes<S, TCtx = unknown>(
-  shapes: Record<string, ShapeOrFn<S, TCtx>>,
-): NamedShapeMap<S, TCtx> {
-  return shapes as NamedShapeMap<S, TCtx>
-}
-
 export type ShapeInput<S, TCtx = unknown> =
-  | ShapeOrFn<S, TCtx>
-  | NamedShapeMap<S, TCtx>
+  Record<string, ShapeOrFn<S, TCtx>>

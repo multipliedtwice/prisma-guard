@@ -1400,6 +1400,25 @@ Without a `default` key, missing or unmatched callers throw `CallerError`.
 
 The `default` fallback works consistently across both `.guard()` and `guard.query().parse()` API surfaces.
 
+### Note for generated route configs
+
+The direct `.guard({ where: ... })` form is still valid in the runtime API. Generated route configs from `prisma-generator-express`, however, type operation `shape` as a named shape map. For a single generated-route shape, put it under `default`:
+
+```ts
+const projectConfig = {
+  findMany: {
+    shape: {
+      default: {
+        where: { title: { contains: true } },
+        take: { max: 50, default: 20 },
+      },
+    },
+  },
+}
+```
+
+Additional keys such as `admin`, `public`, or path patterns are caller-routed variants. Reserved shape keys such as `where`, `data`, `include`, and `select` cannot be used as caller keys.
+
 ### Caller resolution order
 
 Caller is resolved in priority order:

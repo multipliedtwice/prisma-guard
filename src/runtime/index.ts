@@ -30,7 +30,6 @@ export type {
   GuardInput,
   GuardedModel,
 } from '../shared/types.js'
-export { namedShapes } from '../shared/typed-shape.js'
 export type {
   TypeMapConst,
   FieldMetaConst,
@@ -39,7 +38,6 @@ export type {
   TypedShapeProps,
   OperationShape,
   ShapeInput,
-  NamedShapeMap,
   TypedWhere,
   TypedProjection,
   TypedInclude,

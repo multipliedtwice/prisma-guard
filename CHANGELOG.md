@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.21.1...v1.22.0) (2026-05-18)
+
+
+### Features
+
+* add typed shapes and operation shape keys for enhanced type safety in query generation ([6007978](https://github.com/multipliedtwice/prisma-guard/commit/6007978c3b559110ae77911c385f800880f86e07))
+
 ## [1.21.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.21.0...v1.21.1) (2026-04-21)
 
 

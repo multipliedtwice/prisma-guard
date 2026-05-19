@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.23.0...v1.24.0) (2026-05-19)
+
+
+### Features
+
+* enhance emitClient function to accept dynamic Prisma client import and refactor related code ([83c6bb2](https://github.com/multipliedtwice/prisma-guard/commit/83c6bb2139afe6a1dbde3b63539d0619651eeee2))
+
 # [1.23.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.3...v1.23.0) (2026-05-19)
 
 

@@ -33,6 +33,14 @@ export type RelationFields<TM extends TypeMapConst, M extends keyof TM> = {
   [K in keyof TM[M]]: TM[M][K]['isRelation'] extends true ? K : never
 }[keyof TM[M]] & string
 
+export type ListRelationFields<TM extends TypeMapConst, M extends keyof TM> = {
+  [K in keyof TM[M]]: TM[M][K]['isRelation'] extends true
+    ? TM[M][K]['isList'] extends true
+      ? K
+      : never
+    : never
+}[keyof TM[M]] & string
+
 export type WritableFields<TM extends TypeMapConst, M extends keyof TM> = {
   [K in keyof TM[M]]: TM[M][K]['isRelation'] extends true
     ? never
@@ -89,6 +97,20 @@ export type LooseNestedArgs = {
 export type TypedWhere<TM extends TypeMapConst, M extends keyof TM> =
   Partial<Record<AllFields<TM, M> | 'AND' | 'OR' | 'NOT', unknown>>
 
+export type TypedCountSelectInProjection<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+> = {
+  [K in ListRelationFields<TM, M>]?:
+    | true
+    | { where?: TypedWhere<TM, RelTarget<TM, M, K>> }
+}
+
+export type TypedProjectionCount<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+> = true | { select: TypedCountSelectInProjection<TM, M> }
+
 export type TypedNestedRelArgs<
   TM extends TypeMapConst,
   T,
@@ -115,6 +137,8 @@ export type TypedProjection<
   [K in AllFields<TM, M>]?: K extends RelationFields<TM, M>
     ? true | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D>
     : true
+} & {
+  _count?: TypedProjectionCount<TM, M>
 }
 
 export type TypedInclude<
@@ -124,6 +148,8 @@ export type TypedInclude<
 > = {
   [K in RelationFields<TM, M>]?:
     true | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D>
+} & {
+  _count?: TypedProjectionCount<TM, M>
 }
 
 export type TypedCountSelect<TM extends TypeMapConst, M extends keyof TM> =

@@ -1,3 +1,10 @@
+## [1.22.3](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.2...v1.22.3) (2026-05-19)
+
+
+### Bug Fixes
+
+* add TypedCountSelect type to emitted shapes in emitTypedShapes function ([09c847d](https://github.com/multipliedtwice/prisma-guard/commit/09c847deecc431e1947bd4c00a46a4fc4ec04551))
+
 ## [1.22.2](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.1...v1.22.2) (2026-05-18)
 
 

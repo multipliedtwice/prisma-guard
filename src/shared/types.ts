@@ -93,9 +93,9 @@ export interface NestedIncludeArgs {
 }
 
 export interface NestedSelectArgs {
-  select?: Record<string, true | NestedSelectArgs>
-  include?: Record<string, true | NestedIncludeArgs>
   where?: Record<string, unknown>
+  include?: Record<string, true | NestedIncludeArgs>
+  select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, OrderByFieldConfig>
   cursor?: Record<string, true>
   take?: number | { max: number; default?: number }
@@ -170,14 +170,16 @@ export type GuardInput =
 
 type GuardableMethodName = QueryMethod | MutationMethod
 
-type ExtractReturn<T, K extends string> =
-  K extends keyof T
-    ? T[K] extends (...args: any[]) => infer R ? R : never
+type AnyFn = (...args: any[]) => any
+
+type DelegateMethod<TDelegate, K extends PropertyKey> =
+  K extends keyof TDelegate
+    ? TDelegate[K] extends AnyFn
+      ? TDelegate[K]
+      : never
     : never
 
 export type GuardedModel<TDelegate> = {
-  [K in GuardableMethodName as K extends keyof TDelegate ? K : never]:
-    ExtractReturn<TDelegate, K> extends never
-      ? never
-      : (body?: unknown) => ExtractReturn<TDelegate, K>
+  [K in GuardableMethodName as DelegateMethod<TDelegate, K> extends never ? never : K]:
+    DelegateMethod<TDelegate, K>
 }

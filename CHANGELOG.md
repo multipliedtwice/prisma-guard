@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.3...v1.23.0) (2026-05-19)
+
+
+### Features
+
+* add ListRelationFields type and enhance TypedCountSelect for better relation handling ([427e043](https://github.com/multipliedtwice/prisma-guard/commit/427e0439ebfc32268ae8b8533ea43391e90a81da))
+
 ## [1.22.3](https://github.com/multipliedtwice/prisma-guard/compare/v1.22.2...v1.22.3) (2026-05-19)
 
 

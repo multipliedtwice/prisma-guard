@@ -21,6 +21,7 @@ export function emitTypedShapes(
     `  ShapeInput,\n` +
     `  TypedProjection,\n` +
     `  TypedInclude,\n` +
+    `  TypedCountSelect,\n` +
     `} from 'prisma-guard'\n\n` +
     `type TM = typeof TYPE_MAP\n\n`
 
@@ -29,10 +30,13 @@ export function emitTypedShapes(
       const m = model.name
 
       const projAlias =
-        `export type ${m}Projection = ` +
+        `export type ${m}Select = ` +
         `TypedProjection<TM, '${m}', ${depth}>\n` +
+        `export type ${m}Projection = ${m}Select\n` +
         `export type ${m}Include = ` +
-        `TypedInclude<TM, '${m}', ${depth}>\n`
+        `TypedInclude<TM, '${m}', ${depth}>\n` +
+        `export type ${m}CountSelect = ` +
+        `TypedCountSelect<TM, '${m}'>\n`
 
       const guardAlias =
         `export type ${m}GuardShape = ` +

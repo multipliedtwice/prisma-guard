@@ -1,3 +1,15 @@
+# [1.25.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.24.0...v1.25.0) (2026-05-20)
+
+
+### Bug Fixes
+
+* update buildCursorSchema to accept unknown config type ([375c3de](https://github.com/multipliedtwice/prisma-guard/commit/375c3de184e7031c7f9d13f163f2d7465f62e1c9))
+
+
+### Features
+
+* enhance unique constraints handling in type definitions and queries ([b8ac070](https://github.com/multipliedtwice/prisma-guard/commit/b8ac070dd1f5b16a1da0d51e9d6982cb1baa6da7))
+
 # [1.24.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.23.0...v1.24.0) (2026-05-19)
 
 

@@ -1,6 +1,6 @@
-export { createGuard } from './guard.js'
-export { PolicyError, ShapeError, CallerError } from '../shared/errors.js'
-export { force, unsupported } from '../shared/constants.js'
+export { createGuard } from "./guard.js";
+export { PolicyError, ShapeError, CallerError } from "../shared/errors.js";
+export { force, unsupported } from "../shared/constants.js";
 export type {
   FieldMeta,
   InputOpts,
@@ -29,7 +29,7 @@ export type {
   GuardShapeOrFn,
   GuardInput,
   GuardedModel,
-} from '../shared/types.js'
+} from "../shared/types.js";
 export type {
   TypeMapConst,
   FieldMetaConst,
@@ -44,5 +44,8 @@ export type {
   TypedCountSelect,
   NumericFields,
   ComparableFields,
-} from '../shared/typed-shape.js'
-export type { OperationName } from '../shared/operation-shape-keys.js'
+  UniqueConstraintConst,
+  UniqueMapConst,
+  TypedUniqueWhere,
+} from "../shared/typed-shape.js";
+export type { OperationName } from "../shared/operation-shape-keys.js";

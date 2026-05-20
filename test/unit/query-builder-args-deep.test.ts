@@ -23,7 +23,10 @@ const typeMap: TypeMap = {
 }
 
 const enumMap: EnumMap = { Role: ['ADMIN', 'USER'] }
-const uniqueMap: UniqueMap = { User: [['id']], Post: [['id']] }
+const uniqueMap: UniqueMap = {
+  User: [{ fields: ['id'], selector: 'id' }],
+  Post: [{ fields: ['id'], selector: 'id' }],
+}
 
 const scalarBase = createScalarBase(false)
 

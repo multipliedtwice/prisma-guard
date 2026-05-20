@@ -7,7 +7,6 @@ import type {
   ShapeConfig,
   ShapeOrFn,
   QuerySchema,
-  NestedSelectArgs,
   OrderByFieldConfig,
 } from "../shared/types.js";
 import { ShapeError, CallerError } from "../shared/errors.js";
@@ -28,11 +27,6 @@ import type {
   ForcedTree,
   WhereForced,
 } from "./query-builder-forced.js";
-import type { WhereBuiltResult } from "./query-builder-where.js";
-import type {
-  BuiltIncludeResult,
-  BuiltSelectResult,
-} from "./query-builder-projection.js";
 import type { ScalarBaseMap } from "../shared/scalar-base.js";
 import { READ_METHOD_ALLOWED_ARGS } from "../shared/operation-shape-keys.js";
 
@@ -50,13 +44,20 @@ export function createQueryBuilder(
   uniqueMap: UniqueMap,
   scalarBase: ScalarBaseMap,
 ) {
-  const whereBuilder = createWhereBuilder(typeMap, enumMap, scalarBase);
+  const whereBuilder = createWhereBuilder(
+    typeMap,
+    enumMap,
+    scalarBase,
+    uniqueMap,
+  );
+
   const argsBuilder = createArgsBuilder(
     typeMap,
     enumMap,
     uniqueMap,
     scalarBase,
   );
+
   const projectionBuilder = createProjectionBuilder(typeMap, enumMap, {
     buildWhereSchema: whereBuilder.buildWhereSchema,
     buildOrderBySchema: argsBuilder.buildOrderBySchema,
@@ -72,33 +73,47 @@ export function createQueryBuilder(
 
   function validateShapeArgs(method: QueryMethod, shape: ShapeConfig): void {
     const allowed = METHOD_ALLOWED_ARGS[method];
+
     for (const key of Object.keys(shape)) {
-      if (!SHAPE_CONFIG_KEYS.has(key))
+      if (!SHAPE_CONFIG_KEYS.has(key)) {
         throw new ShapeError(`Unknown shape config key "${key}"`);
-      if (!allowed.has(key))
+      }
+
+      if (!allowed.has(key)) {
         throw new ShapeError(`Arg "${key}" not allowed for method "${method}"`);
+      }
     }
+
     if (UNIQUE_WHERE_METHODS.has(method) && !shape.where) {
       throw new ShapeError(`${method} shape must define "where"`);
     }
-    if (method === "groupBy" && !shape.by)
+
+    if (method === "groupBy" && !shape.by) {
       throw new ShapeError('groupBy shape must define "by"');
+    }
+
     if (method === "groupBy" && (shape.include || shape.select)) {
       throw new ShapeError('groupBy does not support "include" or "select"');
     }
+
     if (method === "aggregate" && (shape.include || shape.select)) {
       throw new ShapeError('aggregate does not support "include" or "select"');
     }
-    if (method === "count" && shape.include)
+
+    if (method === "count" && shape.include) {
       throw new ShapeError('count does not support "include"');
+    }
+
     if (
       method === "groupBy" &&
       shape.orderBy &&
       (shape.orderBy as unknown) !== true
     ) {
       const bySet = new Set(shape.by);
+
       for (const fieldName of Object.keys(shape.orderBy)) {
         if (fieldName === "_count") continue;
+
         if (!bySet.has(fieldName)) {
           throw new ShapeError(
             `orderBy field "${fieldName}" must be included in "by" for groupBy`,
@@ -106,8 +121,10 @@ export function createQueryBuilder(
         }
       }
     }
+
     if (method === "groupBy" && shape.having) {
       const bySet = new Set(shape.by);
+
       for (const fieldName of Object.keys(shape.having)) {
         if (!bySet.has(fieldName)) {
           throw new ShapeError(
@@ -125,6 +142,7 @@ export function createQueryBuilder(
   ): void {
     if (!UNIQUE_WHERE_METHODS.has(method)) return;
     if (!shape.where) return;
+
     validateUniqueEquality(model, shape.where, method, uniqueMap, typeMap);
   }
 
@@ -134,14 +152,18 @@ export function createQueryBuilder(
   ): ShapeConfig {
     if (typeof shapeOrFn === "function") {
       requireContext(ctx, "shape function");
+
       const result = shapeOrFn(ctx);
+
       if (!isPlainObject(result)) {
         throw new ShapeError(
           "Dynamic shape function must return a plain object",
         );
       }
+
       return result as ShapeConfig;
     }
+
     return shapeOrFn as ShapeConfig;
   }
 
@@ -162,31 +184,34 @@ export function createQueryBuilder(
     let forcedSelectCountWhere: Record<string, WhereForced> = {};
 
     if (shape.where) {
-      const { schema, forced, forcedOnlyKeys } = whereBuilder.buildWhereSchema(
-        model,
-        shape.where,
-      );
-      if (schema) schemaFields["where"] = schema;
-      forcedWhere = forced;
-      forcedOnlyWhereKeys = forcedOnlyKeys;
+      const builtWhere = UNIQUE_WHERE_METHODS.has(method)
+        ? whereBuilder.buildUniqueWhereSchema(model, shape.where)
+        : whereBuilder.buildWhereSchema(model, shape.where);
+
+      if (builtWhere.schema) {
+        schemaFields.where = builtWhere.schema;
+      }
+
+      forcedWhere = builtWhere.forced;
+      forcedOnlyWhereKeys = builtWhere.forcedOnlyKeys;
     }
 
     if (shape.include) {
       const result = projectionBuilder.buildIncludeSchema(model, shape.include);
-      schemaFields["include"] = result.schema;
+      schemaFields.include = result.schema;
       forcedIncludeTree = result.forcedTree;
       forcedIncludeCountWhere = result.forcedCountWhere;
     }
 
     if (shape.select) {
       if (method === "count") {
-        schemaFields["select"] = argsBuilder.buildCountSelectSchema(
+        schemaFields.select = argsBuilder.buildCountSelectSchema(
           model,
           shape.select as Record<string, true>,
         );
       } else {
         const result = projectionBuilder.buildSelectSchema(model, shape.select);
-        schemaFields["select"] = result.schema;
+        schemaFields.select = result.schema;
         forcedSelectTree = result.forcedTree;
         forcedSelectCountWhere = result.forcedCountWhere;
       }
@@ -199,10 +224,13 @@ export function createQueryBuilder(
 
         if ((shape.orderBy as unknown) === true) {
           const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
+
           for (const field of shape.by) {
             groupByOrderFields[field] = sortEnum.optional();
           }
-          groupByOrderFields["_count"] = sortEnum.optional();
+
+          groupByOrderFields._count = sortEnum.optional();
+
           const fieldKeys = Object.keys(groupByOrderFields);
           const singleSchema = z
             .object(groupByOrderFields)
@@ -214,8 +242,12 @@ export function createQueryBuilder(
                 ),
               { message: "orderBy must specify at least one field" },
             );
-          schemaFields["orderBy"] = z
-            .union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))])
+
+          schemaFields.orderBy = z
+            .union([
+              singleSchema,
+              z.preprocess(coerceToArray, z.array(singleSchema).min(1)),
+            ])
             .optional();
         } else {
           const groupByOrderFields: Record<string, z.ZodTypeAny> = {};
@@ -223,19 +255,23 @@ export function createQueryBuilder(
           for (const [fieldName, config] of Object.entries(shape.orderBy)) {
             if (fieldName === "_count") {
               if (config === true) {
-                groupByOrderFields["_count"] = sortEnum.optional();
+                groupByOrderFields._count = sortEnum.optional();
               } else if (typeof config === "object" && config !== null) {
                 const countFields: Record<string, z.ZodTypeAny> = {};
+
                 for (const countField of Object.keys(config)) {
                   if (!bySet.has(countField)) {
                     throw new ShapeError(
                       `orderBy _count field "${countField}" must be included in "by" for groupBy`,
                     );
                   }
+
                   countFields[countField] = sortEnum.optional();
                 }
+
                 const countKeys = Object.keys(countFields);
-                groupByOrderFields["_count"] = z
+
+                groupByOrderFields._count = z
                   .object(countFields)
                   .strict()
                   .refine(
@@ -249,6 +285,7 @@ export function createQueryBuilder(
                   )
                   .optional();
               }
+
               continue;
             }
 
@@ -257,6 +294,7 @@ export function createQueryBuilder(
                 `orderBy field "${fieldName}" must be included in "by" for groupBy`,
               );
             }
+
             groupByOrderFields[fieldName] = sortEnum.optional();
           }
 
@@ -271,73 +309,98 @@ export function createQueryBuilder(
                 ),
               { message: "orderBy must specify at least one field" },
             );
-          schemaFields["orderBy"] = z
-            .union([singleSchema, z.preprocess(coerceToArray, z.array(singleSchema).min(1))])
+
+          schemaFields.orderBy = z
+            .union([
+              singleSchema,
+              z.preprocess(coerceToArray, z.array(singleSchema).min(1)),
+            ])
             .optional();
         }
       } else {
-        schemaFields["orderBy"] = argsBuilder.buildOrderBySchema(
+        schemaFields.orderBy = argsBuilder.buildOrderBySchema(
           model,
           shape.orderBy as Record<string, OrderByFieldConfig>,
         );
       }
     }
 
-    if (shape.cursor)
-      schemaFields["cursor"] = argsBuilder.buildCursorSchema(
+    if (shape.cursor) {
+      schemaFields.cursor = argsBuilder.buildCursorSchema(
         model,
         shape.cursor,
       );
-    if (shape.take)
-      schemaFields["take"] = argsBuilder.buildTakeSchema(shape.take);
+    }
+
+    if (shape.take) {
+      schemaFields.take = argsBuilder.buildTakeSchema(shape.take);
+    }
+
     if (shape.skip !== undefined) {
       if (shape.skip !== true) {
         throw new ShapeError('Shape config "skip" must be true');
       }
-      schemaFields["skip"] = z.number().int().min(0).optional();
+
+      schemaFields.skip = z.number().int().min(0).optional();
     }
-    if (shape.distinct)
-      schemaFields["distinct"] = argsBuilder.buildDistinctSchema(
+
+    if (shape.distinct) {
+      schemaFields.distinct = argsBuilder.buildDistinctSchema(
         model,
         shape.distinct,
       );
-    if (shape._count)
-      schemaFields["_count"] = argsBuilder.buildCountFieldSchema(
+    }
+
+    if (shape._count) {
+      schemaFields._count = argsBuilder.buildCountFieldSchema(
         model,
         shape._count,
         "_count",
       );
-    if (shape._avg)
-      schemaFields["_avg"] = argsBuilder.buildAggregateFieldSchema(
+    }
+
+    if (shape._avg) {
+      schemaFields._avg = argsBuilder.buildAggregateFieldSchema(
         model,
         "_avg",
         shape._avg,
       );
-    if (shape._sum)
-      schemaFields["_sum"] = argsBuilder.buildAggregateFieldSchema(
+    }
+
+    if (shape._sum) {
+      schemaFields._sum = argsBuilder.buildAggregateFieldSchema(
         model,
         "_sum",
         shape._sum,
       );
-    if (shape._min)
-      schemaFields["_min"] = argsBuilder.buildAggregateFieldSchema(
+    }
+
+    if (shape._min) {
+      schemaFields._min = argsBuilder.buildAggregateFieldSchema(
         model,
         "_min",
         shape._min,
       );
-    if (shape._max)
-      schemaFields["_max"] = argsBuilder.buildAggregateFieldSchema(
+    }
+
+    if (shape._max) {
+      schemaFields._max = argsBuilder.buildAggregateFieldSchema(
         model,
         "_max",
         shape._max,
       );
-    if (shape.by)
-      schemaFields["by"] = argsBuilder.buildBySchema(model, shape.by);
-    if (shape.having)
-      schemaFields["having"] = argsBuilder.buildHavingSchema(
+    }
+
+    if (shape.by) {
+      schemaFields.by = argsBuilder.buildBySchema(model, shape.by);
+    }
+
+    if (shape.having) {
+      schemaFields.having = argsBuilder.buildHavingSchema(
         model,
         shape.having,
       );
+    }
 
     return {
       zodSchema: z.object(schemaFields).strict(),
@@ -356,6 +419,7 @@ export function createQueryBuilder(
   ): { key: string; shape: ShapeOrFn<TCtx> } | null {
     const matched = matchCallerPattern(Object.keys(shapes), caller);
     if (!matched) return null;
+
     return { key: matched, shape: shapes[matched] };
   }
 
@@ -368,14 +432,16 @@ export function createQueryBuilder(
     builtCache: Map<string, BuiltShape>,
     isUnique: boolean,
   ): Record<string, unknown> {
-    const shapeOrFn = config['default'];
+    const shapeOrFn = config.default;
     let built: BuiltShape;
-    if (typeof shapeOrFn === 'function') {
+
+    if (typeof shapeOrFn === "function") {
       const resolved = resolveAndValidateShape(shapeOrFn, opts?.ctx);
       built = buildShapeZodSchema(model, method, resolved);
     } else {
-      built = builtCache.get('default')!;
+      built = builtCache.get("default")!;
     }
+
     return applyBuiltShape(built, normalizedBody, isUnique);
   }
 
@@ -402,6 +468,7 @@ export function createQueryBuilder(
           );
         }
       }
+
       for (const [key, shapeOrFn] of Object.entries(
         config as Record<string, ShapeOrFn<TCtx>>,
       )) {
@@ -435,8 +502,9 @@ export function createQueryBuilder(
             built = builtCache.get("_default")!;
           }
         } else {
-          if (!isPlainObject(normalizedBody))
+          if (!isPlainObject(normalizedBody)) {
             throw new ShapeError("Request body must be an object");
+          }
 
           if ("caller" in (normalizedBody as Record<string, unknown>)) {
             throw new CallerError(
@@ -450,10 +518,18 @@ export function createQueryBuilder(
           if (typeof caller !== "string") {
             if ("default" in namedConfig) {
               return resolveDefaultShape(
-                namedConfig, model, method, normalizedBody, opts, builtCache, isUnique,
+                namedConfig,
+                model,
+                method,
+                normalizedBody,
+                opts,
+                builtCache,
+                isUnique,
               );
             }
+
             const allowed = Object.keys(namedConfig);
+
             throw new CallerError(
               `Missing caller. This query uses named shape routing with keys: ${allowed.map((k) => `"${k}"`).join(", ")}. ` +
                 `Provide caller via opts.caller.`,
@@ -465,10 +541,18 @@ export function createQueryBuilder(
           if (!matched) {
             if ("default" in namedConfig) {
               return resolveDefaultShape(
-                namedConfig, model, method, normalizedBody, opts, builtCache, isUnique,
+                namedConfig,
+                model,
+                method,
+                normalizedBody,
+                opts,
+                builtCache,
+                isUnique,
               );
             }
+
             const allowed = Object.keys(namedConfig);
+
             throw new CallerError(
               `Unknown caller: "${caller}". Allowed: ${allowed.map((k) => `"${k}"`).join(", ")}`,
             );

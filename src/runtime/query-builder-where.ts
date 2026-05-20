@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { TypeMap, EnumMap, FieldMeta } from "../shared/types.js";
+import type {
+  TypeMap,
+  EnumMap,
+  FieldMeta,
+  UniqueMap,
+  UniqueConstraint,
+} from "../shared/types.js";
 import { ShapeError } from "../shared/errors.js";
 import {
   COMBINATOR_KEYS,
@@ -38,7 +44,7 @@ export interface WhereBuiltResult {
 
 export interface UniqueWhereBuiltResult {
   schema: z.ZodObject<any> | null;
-  forced: Record<string, unknown>;
+  forced: WhereForced;
   forcedOnlyKeys: Set<string>;
 }
 
@@ -151,6 +157,7 @@ export function createWhereBuilder(
   typeMap: TypeMap,
   enumMap: EnumMap,
   scalarBase: ScalarBaseMap,
+  uniqueMap: UniqueMap = {},
 ) {
   function buildWhereSchema(
     model: string,
@@ -512,7 +519,7 @@ export function createWhereBuilder(
         );
       }
       if (modeConfigValue === true) {
-        opSchemas["mode"] = z.enum(["default", "insensitive"]).optional();
+        opSchemas.mode = z.enum(["default", "insensitive"]).optional();
       } else {
         const actualModeValue = isForcedValue(modeConfigValue)
           ? modeConfigValue.value
@@ -526,10 +533,10 @@ export function createWhereBuilder(
             `Invalid forced value for "${model}.${fieldName}.mode": ${err.message}`,
           );
         }
-        fieldForced["mode"] = parsed;
+        fieldForced.mode = parsed;
       }
     } else if (hasModeCompatibleOp) {
-      opSchemas["mode"] = z.enum(["default", "insensitive"]).optional();
+      opSchemas.mode = z.enum(["default", "insensitive"]).optional();
     }
 
     if (hasClientOps) {
@@ -562,6 +569,81 @@ export function createWhereBuilder(
     }
   }
 
+  function getUniqueConstraint(
+    model: string,
+    selector: string,
+  ): UniqueConstraint | null {
+    return (
+      (uniqueMap[model] ?? []).find(
+        (constraint) => constraint.selector === selector,
+      ) ?? null
+    );
+  }
+
+  function buildDirectUniqueSchema(fieldMeta: FieldMeta): z.ZodTypeAny {
+    const base = createBaseType(fieldMeta, enumMap, scalarBase);
+
+    if (!fieldMeta.isEnum && !fieldMeta.isRelation && !fieldMeta.isUnsupported) {
+      return wrapWithInputCoercion(fieldMeta.type, fieldMeta.isList, base);
+    }
+
+    return base;
+  }
+
+  function parseForcedUniqueValue(
+    model: string,
+    fieldName: string,
+    fieldMeta: FieldMeta,
+    value: unknown,
+  ): unknown {
+    const schema = buildDirectUniqueSchema(fieldMeta);
+    const actual = isForcedValue(value) ? value.value : value;
+
+    try {
+      return schema.parse(actual);
+    } catch (err: any) {
+      throw new ShapeError(
+        `Invalid forced value for unique where "${model}.${fieldName}": ${err.message}`,
+      );
+    }
+  }
+
+  function assertCompoundSelectorConfig(
+    model: string,
+    selector: string,
+    constraint: UniqueConstraint,
+    value: unknown,
+  ): Record<string, unknown> {
+    const actual = isForcedValue(value) ? value.value : value;
+
+    if (!isPlainObject(actual)) {
+      throw new ShapeError(
+        `Compound unique selector "${model}.${selector}" must be an object with fields: ${constraint.fields.join(", ")}`,
+      );
+    }
+
+    const allowed = new Set(constraint.fields);
+    const keys = Object.keys(actual);
+
+    for (const key of keys) {
+      if (!allowed.has(key)) {
+        throw new ShapeError(
+          `Unknown field "${key}" in compound unique selector "${model}.${selector}". Allowed fields: ${constraint.fields.join(", ")}`,
+        );
+      }
+    }
+
+    for (const field of constraint.fields) {
+      if (!(field in actual)) {
+        throw new ShapeError(
+          `Missing field "${field}" in compound unique selector "${model}.${selector}"`,
+        );
+      }
+    }
+
+    return actual;
+  }
+
   function buildUniqueWhereSchema(
     model: string,
     whereConfig: Record<string, unknown>,
@@ -570,7 +652,7 @@ export function createWhereBuilder(
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`);
 
     const fieldSchemas: Record<string, z.ZodTypeAny> = {};
-    const forced: Record<string, unknown> = {};
+    const forcedConditions: Record<string, unknown> = {};
     const forcedOnlyKeys = new Set<string>();
 
     for (const [key, value] of Object.entries(whereConfig)) {
@@ -580,74 +662,112 @@ export function createWhereBuilder(
         );
       }
 
-      const fieldMeta = modelFields[key];
-      if (!fieldMeta)
-        throw new ShapeError(`Unknown field "${key}" on model "${model}"`);
-      if (fieldMeta.isRelation)
-        throw new ShapeError(
-          `Relation field "${key}" cannot be used in unique where for model "${model}"`,
+      const constraint = getUniqueConstraint(model, key);
+
+      if (constraint && constraint.fields.length > 1) {
+        const compoundConfig = assertCompoundSelectorConfig(
+          model,
+          key,
+          constraint,
+          value,
         );
 
-      const base = createBaseType(fieldMeta, enumMap, scalarBase);
-      let directSchema: z.ZodTypeAny;
-      if (
-        !fieldMeta.isEnum &&
-        !fieldMeta.isRelation &&
-        !fieldMeta.isUnsupported
-      ) {
-        directSchema = wrapWithInputCoercion(
-          fieldMeta.type,
-          fieldMeta.isList,
-          base,
-        );
-      } else {
-        directSchema = base;
-      }
+        const nestedSchemas: Record<string, z.ZodTypeAny> = {};
+        const forcedCompound: Record<string, unknown> = {};
 
-      const equalsWrapper = z
-        .object({ equals: directSchema })
-        .strict()
-        .transform((v) => v.equals);
+        for (const fieldName of constraint.fields) {
+          const fieldMeta = modelFields[fieldName];
+          if (!fieldMeta) {
+            throw new ShapeError(
+              `Unknown field "${fieldName}" in compound unique selector "${model}.${key}"`,
+            );
+          }
 
-      if (value === true) {
-        fieldSchemas[key] = z.union([directSchema, equalsWrapper]);
+          if (fieldMeta.isRelation) {
+            throw new ShapeError(
+              `Relation field "${fieldName}" cannot be used in compound unique selector "${model}.${key}"`,
+            );
+          }
+
+          const fieldValue = compoundConfig[fieldName];
+          const forced = isForcedValue(fieldValue);
+
+          if (!forced && isPlainObject(fieldValue)) {
+            const operators = Object.keys(fieldValue);
+            throw new ShapeError(
+              `Invalid compound unique where shape for "${model}.${key}.${fieldName}". Prisma compound unique selectors do not accept filter operator objects${operators.length ? `: ${operators.join(", ")}` : ""}. Use direct values only.`,
+            );
+          }
+
+          const directSchema = buildDirectUniqueSchema(fieldMeta);
+
+          if (fieldValue === true) {
+            nestedSchemas[fieldName] = directSchema;
+          } else {
+            forcedCompound[fieldName] = parseForcedUniqueValue(
+              model,
+              fieldName,
+              fieldMeta,
+              fieldValue,
+            );
+          }
+        }
+
+        if (Object.keys(nestedSchemas).length > 0) {
+          fieldSchemas[key] = z.object(nestedSchemas).strict();
+        }
+
+        if (Object.keys(forcedCompound).length > 0) {
+          forcedConditions[key] = forcedCompound;
+        }
+
+        if (Object.keys(nestedSchemas).length === 0) {
+          forcedOnlyKeys.add(key);
+        }
+
         continue;
       }
 
-      if (isPlainObject(value)) {
-        const keys = Object.keys(value);
-        if (keys.length === 1 && keys[0] === "equals") {
-          const equalsVal = (value as Record<string, unknown>).equals;
-          if (equalsVal === true) {
-            fieldSchemas[key] = z.union([directSchema, equalsWrapper]);
-          } else {
-            const actual = isForcedValue(equalsVal)
-              ? (equalsVal as any).value
-              : equalsVal;
-            try {
-              forced[key] = directSchema.parse(actual);
-            } catch (err: any) {
-              throw new ShapeError(
-                `Invalid forced value for unique where "${model}.${key}": ${err.message}`,
-              );
-            }
-            forcedOnlyKeys.add(key);
-          }
-          continue;
-        }
+      const fieldMeta = modelFields[key];
+      if (!fieldMeta) {
+        const selectors = (uniqueMap[model] ?? [])
+          .map((constraint) => constraint.selector)
+          .join(", ");
         throw new ShapeError(
-          `Unique where field "${key}" on model "${model}" only accepts true or { equals: true/value }. Got operators: ${keys.join(", ")}`,
+          `Unknown unique field or selector "${key}" on model "${model}"${selectors ? `. Unique selectors: ${selectors}` : ""}`,
         );
       }
 
-      const actual = isForcedValue(value) ? (value as any).value : value;
-      try {
-        forced[key] = directSchema.parse(actual);
-      } catch (err: any) {
+      if (fieldMeta.isRelation) {
         throw new ShapeError(
-          `Invalid forced value for unique where "${model}.${key}": ${err.message}`,
+          `Relation field "${key}" cannot be used in unique where for model "${model}"`,
         );
       }
+
+      const forced = isForcedValue(value);
+
+      if (!forced && isPlainObject(value)) {
+        const keys = Object.keys(value);
+
+        if (keys.includes("equals")) {
+          throw new ShapeError(
+            `Invalid unique where shape for "${model}.${key}". Prisma WhereUniqueInput does not accept filter operator objects. Use { ${key}: true } instead of { ${key}: { equals: true } }.`,
+          );
+        }
+
+        throw new ShapeError(
+          `Invalid unique where shape for "${model}.${key}". Prisma WhereUniqueInput does not accept operators: ${keys.join(", ")}. Use a direct unique value shape, for example { ${key}: true }.`,
+        );
+      }
+
+      const directSchema = buildDirectUniqueSchema(fieldMeta);
+
+      if (value === true) {
+        fieldSchemas[key] = directSchema;
+        continue;
+      }
+
+      forcedConditions[key] = parseForcedUniqueValue(model, key, fieldMeta, value);
       forcedOnlyKeys.add(key);
     }
 
@@ -656,7 +776,10 @@ export function createWhereBuilder(
         Object.keys(fieldSchemas).length > 0
           ? z.object(fieldSchemas).strict()
           : null,
-      forced,
+      forced: {
+        conditions: forcedConditions,
+        relations: {},
+      },
       forcedOnlyKeys,
     };
   }

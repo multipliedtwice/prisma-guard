@@ -53,6 +53,7 @@ const SCALAR_LIST_OPERATORS = new Set([
 const ENUM_OPERATORS = new Set(["equals", "not", "in", "notIn"]);
 
 const NUMERIC_TYPES = new Set(["Int", "Float", "Decimal", "BigInt"]);
+
 const COMPARABLE_TYPES = new Set([
   "Int",
   "Float",
@@ -76,11 +77,37 @@ const JSON_ARRAY_OPERATORS = new Set([
 
 export { NUMERIC_TYPES, COMPARABLE_TYPES };
 
-export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
-  if (fieldMeta.isList) return [...SCALAR_LIST_OPERATORS];
-  if (fieldMeta.isEnum) return [...ENUM_OPERATORS];
-  const ops = SCALAR_OPERATORS[fieldMeta.type];
+export function getSupportedOperators(fieldMeta: FieldMeta): string[];
+export function getSupportedOperators(
+  fieldType: string,
+  isList?: boolean,
+  isEnum?: boolean,
+): string[];
+export function getSupportedOperators(
+  input: FieldMeta | string,
+  isList = false,
+  isEnum = false,
+): string[] {
+  let fieldType: string;
+  let list: boolean;
+  let enumField: boolean;
+
+  if (typeof input === "string") {
+    fieldType = input;
+    list = isList;
+    enumField = isEnum;
+  } else {
+    fieldType = input.type;
+    list = input.isList;
+    enumField = input.isEnum === true;
+  }
+
+  if (list) return [...SCALAR_LIST_OPERATORS];
+  if (enumField) return [...ENUM_OPERATORS];
+
+  const ops = SCALAR_OPERATORS[fieldType];
   if (!ops) return [];
+
   return [...ops];
 }
 
@@ -95,15 +122,19 @@ export function createBaseType(
     base = z.unknown();
   } else if (fieldMeta.isEnum) {
     const values = enumMap[fieldMeta.type];
+
     if (!values || values.length === 0) {
       throw new ShapeError(`Unknown enum: ${fieldMeta.type}`);
     }
+
     base = z.enum(values as unknown as [string, ...string[]]);
   } else {
     const factory = scalarBase[fieldMeta.type];
+
     if (!factory) {
       throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`);
     }
+
     base = factory();
   }
 
@@ -139,6 +170,7 @@ export function createScalarListOperatorSchema(
 
   if (operator === "equals") {
     const arrSchema = z.array(itemBase);
+
     return fieldMeta.isRequired
       ? z.preprocess(coerceToArray, arrSchema)
       : z.union([z.preprocess(coerceToArray, arrSchema), z.null()]);
@@ -169,9 +201,7 @@ function createJsonOperatorSchema(
     return jsonValue;
   }
 
-  throw new ShapeError(
-    `Operator "${operator}" not supported for Json fields`,
-  );
+  throw new ShapeError(`Operator "${operator}" not supported for Json fields`);
 }
 
 function buildNotFilterSchema(
@@ -181,11 +211,14 @@ function buildNotFilterSchema(
   scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
   const allOps = getSupportedOperators(fieldMeta);
-  const nestedOps = allOps.filter((o) => o !== "not");
+  const nestedOps = allOps.filter((op) => op !== "not");
 
-  if (nestedOps.length === 0) return scalarSchema;
+  if (nestedOps.length === 0) {
+    return scalarSchema;
+  }
 
   const nestedSchemas: Record<string, z.ZodTypeAny> = {};
+
   for (const op of nestedOps) {
     nestedSchemas[op] = createOperatorSchema(
       fieldMeta,
@@ -196,13 +229,14 @@ function buildNotFilterSchema(
   }
 
   const nestedKeys = Object.keys(nestedSchemas);
+
   const nestedObj = z
     .object(nestedSchemas)
     .strict()
     .refine(
-      (v) =>
+      (value) =>
         nestedKeys.some(
-          (k) => (v as Record<string, unknown>)[k] !== undefined,
+          (key) => (value as Record<string, unknown>)[key] !== undefined,
         ),
       { message: "not filter must specify at least one operator" },
     );
@@ -216,6 +250,32 @@ export function createOperatorSchema(
   enumMap: EnumMap,
   scalarBase: ScalarBaseMap,
 ): z.ZodTypeAny {
+  const allowedOps = getSupportedOperators(fieldMeta);
+
+  if (!allowedOps.includes(operator)) {
+    if (fieldMeta.isList) {
+      throw new ShapeError(
+        `Operator "${operator}" not supported for scalar list fields`,
+      );
+    }
+
+    if (fieldMeta.isEnum) {
+      throw new ShapeError(
+        `Operator "${operator}" not supported for enum fields`,
+      );
+    }
+
+    if (fieldMeta.type === "Bytes" && allowedOps.length === 0) {
+      throw new ShapeError(
+        `Type "${fieldMeta.type}" does not support filter operators`,
+      );
+    }
+
+    throw new ShapeError(
+      `Operator "${operator}" not supported for type "${fieldMeta.type}"`,
+    );
+  }
+
   if (fieldMeta.isList) {
     return createScalarListOperatorSchema(
       fieldMeta,
@@ -227,65 +287,59 @@ export function createOperatorSchema(
 
   if (fieldMeta.isEnum) {
     const values = enumMap[fieldMeta.type];
+
     if (!values || values.length === 0) {
       throw new ShapeError(`Unknown enum: ${fieldMeta.type}`);
     }
-    if (!ENUM_OPERATORS.has(operator)) {
-      throw new ShapeError(
-        `Operator "${operator}" not supported for enum fields`,
-      );
-    }
+
     const enumSchema = z.enum(values as unknown as [string, ...string[]]);
+
     if (operator === "equals") {
       return !fieldMeta.isRequired
         ? z.union([enumSchema, z.null()])
         : enumSchema;
     }
+
     if (operator === "not") {
       const scalarSchema = !fieldMeta.isRequired
         ? z.union([enumSchema, z.null()])
         : enumSchema;
-      return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
+
+      return buildNotFilterSchema(
+        fieldMeta,
+        scalarSchema,
+        enumMap,
+        scalarBase,
+      );
     }
+
     const itemSchema = !fieldMeta.isRequired
       ? z.union([enumSchema, z.null()])
       : enumSchema;
+
     return z.preprocess(coerceToArray, z.array(itemSchema));
   }
 
   if (fieldMeta.type === "Json") {
-    const supportedOps = SCALAR_OPERATORS["Json"];
-    if (!supportedOps || !supportedOps.has(operator)) {
-      throw new ShapeError(
-        `Operator "${operator}" not supported for type "Json"`,
-      );
-    }
     if (operator === "not") {
       const jsonValue = z.unknown();
       const scalarSchema = !fieldMeta.isRequired
         ? z.union([jsonValue, z.null()])
         : jsonValue;
-      return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
+
+      return buildNotFilterSchema(
+        fieldMeta,
+        scalarSchema,
+        enumMap,
+        scalarBase,
+      );
     }
+
     return createJsonOperatorSchema(fieldMeta, operator);
   }
 
-  const supportedOps = SCALAR_OPERATORS[fieldMeta.type];
-  if (!supportedOps) {
-    throw new ShapeError(`Unknown scalar type for operator: ${fieldMeta.type}`);
-  }
-  if (supportedOps.size === 0) {
-    throw new ShapeError(
-      `Type "${fieldMeta.type}" does not support filter operators`,
-    );
-  }
-  if (!supportedOps.has(operator)) {
-    throw new ShapeError(
-      `Operator "${operator}" not supported for type "${fieldMeta.type}"`,
-    );
-  }
-
   const factory = scalarBase[fieldMeta.type];
+
   if (!factory) {
     throw new ShapeError(`Unknown scalar type: ${fieldMeta.type}`);
   }
@@ -296,17 +350,22 @@ export function createOperatorSchema(
   if (operator === "equals") {
     return !fieldMeta.isRequired ? z.union([coerced, z.null()]) : coerced;
   }
+
   if (operator === "not") {
     const scalarSchema = !fieldMeta.isRequired
       ? z.union([coerced, z.null()])
       : coerced;
+
     return buildNotFilterSchema(fieldMeta, scalarSchema, enumMap, scalarBase);
   }
+
   if (operator === "in" || operator === "notIn") {
     const itemSchema = !fieldMeta.isRequired
       ? z.union([coerced, z.null()])
       : coerced;
+
     return z.preprocess(coerceToArray, z.array(itemSchema));
   }
+
   return coerced;
 }

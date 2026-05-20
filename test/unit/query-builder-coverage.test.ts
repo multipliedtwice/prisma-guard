@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createQueryBuilder } from "../../src/runtime/query-builder.js";
 import { ShapeError, CallerError } from "../../src/shared/errors.js";
-import type { TypeMap, EnumMap } from "../../src/shared/types.js";
+import type { TypeMap, EnumMap, UniqueMap } from "../../src/shared/types.js";
 import { createScalarBase } from "../../src/shared/scalar-base.js";
 
 const TYPE_MAP: TypeMap = {
@@ -180,8 +180,14 @@ const ENUM_MAP: EnumMap = { Role: ["ADMIN", "USER", "GUEST"] };
 
 const scalarBase = createScalarBase(false);
 
+const UNIQUE_MAP: UniqueMap = {
+  User: [{ selector: "id", fields: ["id"] }],
+  Company: [{ selector: "id", fields: ["id"] }],
+  Post: [{ selector: "id", fields: ["id"] }],
+};
+
 function makeQb() {
-  return createQueryBuilder(TYPE_MAP, ENUM_MAP, {}, scalarBase);
+  return createQueryBuilder(TYPE_MAP, ENUM_MAP, UNIQUE_MAP, scalarBase);
 }
 
 describe("query-builder coverage: aggregate operations", () => {

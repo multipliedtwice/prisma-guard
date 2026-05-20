@@ -1,4 +1,7 @@
-import type { OperationName, OperationShapeKey } from './operation-shape-keys.js'
+import type {
+  OperationName,
+  OperationShapeKey,
+} from './operation-shape-keys.js'
 
 export interface FieldMetaConst {
   readonly type: string
@@ -13,7 +16,14 @@ export interface FieldMetaConst {
   readonly isUnsupported?: boolean
 }
 
+export interface UniqueConstraintConst {
+  readonly selector: string
+  readonly fields: readonly string[]
+}
+
 export type TypeMapConst = Record<string, Record<string, FieldMetaConst>>
+
+export type UniqueMapConst = Record<string, readonly UniqueConstraintConst[]>
 
 export type ShapeDepth = 0 | 1 | 2 | 3
 
@@ -97,6 +107,118 @@ export type LooseNestedArgs = {
 export type TypedWhere<TM extends TypeMapConst, M extends keyof TM> =
   Partial<Record<AllFields<TM, M> | 'AND' | 'OR' | 'NOT', unknown>>
 
+type ForcedShapeValue<T> = { value: T }
+
+type UniqueScalarValue<F extends FieldMetaConst> =
+  F['isEnum'] extends true
+    ? string
+    : F['type'] extends 'String'
+      ? string
+      : F['type'] extends 'Int'
+        ? number
+        : F['type'] extends 'BigInt'
+          ? bigint | number | string
+          : F['type'] extends 'Float'
+            ? number
+            : F['type'] extends 'Decimal'
+              ? number | string
+              : F['type'] extends 'Boolean'
+                ? boolean
+                : F['type'] extends 'DateTime'
+                  ? Date | string
+                  : F['type'] extends 'Bytes'
+                    ? Uint8Array | string
+                    : string | number | bigint | boolean | Date | Uint8Array
+
+export type TypedUniqueWhereValue<F extends FieldMetaConst> =
+  | true
+  | UniqueScalarValue<F>
+  | ForcedShapeValue<UniqueScalarValue<F>>
+
+type SingleFieldUniqueWhere<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+> = Partial<{
+  [K in UniqueFields<TM, M>]: TypedUniqueWhereValue<TM[M][K]>
+}>
+
+type ModelUniqueConstraints<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  UM extends UniqueMapConst,
+> = M extends keyof UM ? UM[M][number] : never
+
+type UniqueSelectorNames<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  UM extends UniqueMapConst,
+> = ModelUniqueConstraints<TM, M, UM> extends infer C
+  ? C extends UniqueConstraintConst
+    ? C['selector'] & string
+    : never
+  : never
+
+type UniqueConstraintBySelector<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  UM extends UniqueMapConst,
+  S extends string,
+> = Extract<ModelUniqueConstraints<TM, M, UM>, { readonly selector: S }>
+
+type UniqueFieldName<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  F,
+> = Extract<F, keyof TM[M] & string>
+
+type TypedCompoundUniqueSelector<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  C extends UniqueConstraintConst,
+> = {
+  [K in UniqueFieldName<TM, M, C['fields'][number]>]:
+    TypedUniqueWhereValue<TM[M][K]>
+}
+
+type TypedCompoundUniqueForcedValue<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  C extends UniqueConstraintConst,
+> = {
+  [K in UniqueFieldName<TM, M, C['fields'][number]>]:
+    UniqueScalarValue<TM[M][K]>
+}
+
+type TypedUniqueSelectorValue<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  C extends UniqueConstraintConst,
+> =
+  C['fields'] extends readonly [infer F]
+    ? TypedUniqueWhereValue<TM[M][UniqueFieldName<TM, M, F>]>
+    :
+        | TypedCompoundUniqueSelector<TM, M, C>
+        | ForcedShapeValue<TypedCompoundUniqueForcedValue<TM, M, C>>
+
+type GeneratedUniqueWhere<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  UM extends UniqueMapConst,
+> = Partial<{
+  [S in UniqueSelectorNames<TM, M, UM>]:
+    TypedUniqueSelectorValue<
+      TM,
+      M,
+      UniqueConstraintBySelector<TM, M, UM, S>
+    >
+}>
+
+export type TypedUniqueWhere<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  UM extends UniqueMapConst = {},
+> = SingleFieldUniqueWhere<TM, M> & GeneratedUniqueWhere<TM, M, UM>
+
 export type TypedCountSelectInProjection<
   TM extends TypeMapConst,
   M extends keyof TM,
@@ -115,15 +237,16 @@ export type TypedNestedRelArgs<
   TM extends TypeMapConst,
   T,
   D extends ShapeDepth,
+  UM extends UniqueMapConst = {},
 > = T extends keyof TM
   ? D extends 0
     ? LooseNestedArgs
     : {
-        select?: TypedProjection<TM, T, DecDepth<D>>
-        include?: TypedInclude<TM, T, DecDepth<D>>
+        select?: TypedProjection<TM, T, DecDepth<D>, UM>
+        include?: TypedInclude<TM, T, DecDepth<D>, UM>
         where?: TypedWhere<TM, T>
         orderBy?: true | Partial<Record<AllFields<TM, T>, unknown>>
-        cursor?: Partial<Record<UniqueFields<TM, T>, true>>
+        cursor?: TypedUniqueWhere<TM, T, UM>
         take?: number | { max: number; default?: number }
         skip?: true
       }
@@ -133,9 +256,10 @@ export type TypedProjection<
   TM extends TypeMapConst,
   M extends keyof TM,
   D extends ShapeDepth,
+  UM extends UniqueMapConst = {},
 > = {
   [K in AllFields<TM, M>]?: K extends RelationFields<TM, M>
-    ? true | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D>
+    ? true | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D, UM>
     : true
 } & {
   _count?: TypedProjectionCount<TM, M>
@@ -145,9 +269,11 @@ export type TypedInclude<
   TM extends TypeMapConst,
   M extends keyof TM,
   D extends ShapeDepth,
+  UM extends UniqueMapConst = {},
 > = {
   [K in RelationFields<TM, M>]?:
-    true | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D>
+    | true
+    | TypedNestedRelArgs<TM, RelTarget<TM, M, K>, D, UM>
 } & {
   _count?: TypedProjectionCount<TM, M>
 }
@@ -162,12 +288,13 @@ export type TypedShapeProps<
   TM extends TypeMapConst,
   M extends keyof TM,
   D extends ShapeDepth,
+  UM extends UniqueMapConst = {},
 > = {
   where: TypedWhere<TM, M>
-  select: TypedProjection<TM, M, D>
-  include: TypedInclude<TM, M, D>
+  select: TypedProjection<TM, M, D, UM>
+  include: TypedInclude<TM, M, D, UM>
   orderBy: true | Partial<Record<AllFields<TM, M>, unknown>>
-  cursor: Partial<Record<UniqueFields<TM, M>, true>>
+  cursor: TypedUniqueWhere<TM, M, UM>
   take: number | { max: number; default?: number }
   skip: true
   distinct: ScalarFields<TM, M>[]
@@ -188,10 +315,13 @@ type BaseOperationShape<
   M extends keyof TM,
   O extends OperationName,
   D extends ShapeDepth,
-> = Partial<Pick<
-  TypedShapeProps<TM, M, D>,
-  Extract<OperationShapeKey<O>, keyof TypedShapeProps<TM, M, D>>
->>
+  UM extends UniqueMapConst,
+> = Partial<
+  Pick<
+    TypedShapeProps<TM, M, D, UM>,
+    Extract<OperationShapeKey<O>, keyof TypedShapeProps<TM, M, D, UM>>
+  >
+>
 
 type RequireKeys<T, K extends keyof T> =
   Omit<T, K> & { [P in K]-?: NonNullable<T[P]> }
@@ -200,8 +330,29 @@ type CountShape<
   TM extends TypeMapConst,
   M extends keyof TM,
   D extends ShapeDepth,
-> = Omit<BaseOperationShape<TM, M, 'count', D>, 'select'> & {
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'count', D, UM>, 'select'> & {
   select?: TypedCountSelect<TM, M>
+}
+
+type UniqueWhereShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  O extends OperationName,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, O, D, UM>, 'where'> & {
+  where?: TypedUniqueWhere<TM, M, UM>
+}
+
+type RequiredUniqueWhereShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  O extends OperationName,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, O, D, UM>, 'where'> & {
+  where: TypedUniqueWhere<TM, M, UM>
 }
 
 export type OperationShape<
@@ -209,22 +360,30 @@ export type OperationShape<
   M extends keyof TM,
   O extends OperationName,
   D extends ShapeDepth = 1,
+  UM extends UniqueMapConst = {},
 > =
   O extends 'findUnique'
-    ? RequireKeys<BaseOperationShape<TM, M, 'findUnique', D>, 'where'>
+    ? RequiredUniqueWhereShape<TM, M, 'findUnique', D, UM>
     : O extends 'findUniqueOrThrow'
-      ? RequireKeys<BaseOperationShape<TM, M, 'findUniqueOrThrow', D>, 'where'>
-      : O extends 'groupBy'
-        ? RequireKeys<BaseOperationShape<TM, M, 'groupBy', D>, 'by'>
-        : O extends 'count'
-          ? CountShape<TM, M, D>
-          : BaseOperationShape<TM, M, O, D>
+      ? RequiredUniqueWhereShape<TM, M, 'findUniqueOrThrow', D, UM>
+      : O extends 'update'
+        ? UniqueWhereShape<TM, M, 'update', D, UM>
+        : O extends 'delete'
+          ? UniqueWhereShape<TM, M, 'delete', D, UM>
+          : O extends 'upsert'
+            ? UniqueWhereShape<TM, M, 'upsert', D, UM>
+            : O extends 'groupBy'
+              ? RequireKeys<BaseOperationShape<TM, M, 'groupBy', D, UM>, 'by'>
+              : O extends 'count'
+                ? CountShape<TM, M, D, UM>
+                : BaseOperationShape<TM, M, O, D, UM>
 
 export type TypedGuardShape<
   TM extends TypeMapConst,
   M extends keyof TM,
   D extends ShapeDepth = 1,
-> = Partial<TypedShapeProps<TM, M, D>>
+  UM extends UniqueMapConst = {},
+> = Partial<TypedShapeProps<TM, M, D, UM>>
 
 export type ShapeFn<S, TCtx> = (ctx: TCtx) => S
 

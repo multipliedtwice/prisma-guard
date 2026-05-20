@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createQueryBuilder } from "../../src/runtime/query-builder.js";
 import { ShapeError, CallerError } from "../../src/shared/errors.js";
-import type { TypeMap, EnumMap } from "../../src/shared/types.js";
+import type { TypeMap, EnumMap, UniqueMap } from "../../src/shared/types.js";
 import { createScalarBase } from "../../src/shared/scalar-base.js";
 
 const TYPE_MAP: TypeMap = {
@@ -14,6 +14,7 @@ const TYPE_MAP: TypeMap = {
       isRelation: false,
       hasDefault: true,
       isUpdatedAt: false,
+      isUnique: true,
     },
     email: {
       type: "String",
@@ -89,6 +90,7 @@ const TYPE_MAP: TypeMap = {
       isRelation: false,
       hasDefault: true,
       isUpdatedAt: false,
+      isUnique: true,
     },
     title: {
       type: "String",
@@ -145,6 +147,7 @@ const TYPE_MAP: TypeMap = {
       isRelation: false,
       hasDefault: true,
       isUpdatedAt: false,
+      isUnique: true,
     },
     bio: {
       type: "String",
@@ -183,6 +186,7 @@ const TYPE_MAP: TypeMap = {
       isRelation: false,
       hasDefault: true,
       isUpdatedAt: false,
+      isUnique: true,
     },
     label: {
       type: "String",
@@ -198,10 +202,17 @@ const TYPE_MAP: TypeMap = {
 
 const ENUM_MAP: EnumMap = { Role: ["USER", "ADMIN"] };
 
+const UNIQUE_MAP: UniqueMap = {
+  User: [{ selector: "id", fields: ["id"] }],
+  Post: [{ selector: "id", fields: ["id"] }],
+  Profile: [{ selector: "id", fields: ["id"] }],
+  Tag: [{ selector: "id", fields: ["id"] }],
+};
+
 const scalarBase = createScalarBase(false);
 
 function qb() {
-  return createQueryBuilder(TYPE_MAP, ENUM_MAP, {}, scalarBase);
+  return createQueryBuilder(TYPE_MAP, ENUM_MAP, UNIQUE_MAP, scalarBase);
 }
 
 describe("single static shape", () => {
@@ -408,7 +419,7 @@ describe("take shapes", () => {
       qb().buildQuerySchema("User", "findMany", {
         take: { max: 5, default: 10 },
       }),
-    ).toThrow("take default cannot exceed max");
+    ).toThrow("take.default cannot exceed take.max");
   });
 });
 

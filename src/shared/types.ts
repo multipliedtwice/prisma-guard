@@ -69,7 +69,7 @@ export interface ShapeConfig {
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: true | Record<string, OrderByFieldConfig>
-  cursor?: Record<string, true>
+  cursor?: Record<string, unknown>
   take?: number | { max: number; default?: number }
   skip?: true
   distinct?: string[]
@@ -87,7 +87,7 @@ export interface NestedIncludeArgs {
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, OrderByFieldConfig>
-  cursor?: Record<string, true>
+  cursor?: Record<string, unknown>
   take?: number | { max: number; default?: number }
   skip?: true
 }
@@ -97,7 +97,7 @@ export interface NestedSelectArgs {
   include?: Record<string, true | NestedIncludeArgs>
   select?: Record<string, true | NestedSelectArgs>
   orderBy?: Record<string, OrderByFieldConfig>
-  cursor?: Record<string, true>
+  cursor?: Record<string, unknown>
   take?: number | { max: number; default?: number }
   skip?: true
 }
@@ -117,7 +117,11 @@ export type TypeMap = Record<string, Record<string, FieldMeta>>
 export type EnumMap = Record<string, readonly string[]>
 export type ZodChains = Record<string, Record<string, (base: any) => z.ZodTypeAny>>
 export type ZodDefaults = Record<string, readonly string[]>
-export type UniqueConstraint = readonly string[]
+export interface UniqueConstraint {
+  readonly selector: string
+  readonly fields: readonly string[]
+}
+
 export type UniqueMap = Record<string, readonly UniqueConstraint[]>
 
 export type MissingScopeContextMode = 'error' | 'warn' | 'ignore'

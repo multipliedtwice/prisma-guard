@@ -121,8 +121,8 @@ const enumMap: EnumMap = {};
 const zodChains: ZodChains = {};
 const zodDefaults: ZodDefaults = {};
 const uniqueMap: UniqueMap = {
-  Project: [["id"]],
-  Task: [["id"]],
+  Project: [{ fields: ["id"], selector: "id" }],
+  Task: [{ fields: ["id"], selector: "id" }],
 };
 
 function makeDelegateMock() {
@@ -349,7 +349,7 @@ describe("model-guard", () => {
           $parent: { project: handler },
         } as any,
         {
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
@@ -556,13 +556,13 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       guarded.update({
         data: { title: "Updated" },
-        where: { id: { equals: "abc" } },
+        where: { id: "abc" },
       });
 
       expect(calls.update.length).toBe(1);
@@ -580,14 +580,14 @@ describe("model-guard", () => {
           $parent: { project: handler },
         } as any,
         {
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       expect(() =>
         guarded.update({
           data: { title: "x" },
-          where: { id: { equals: "abc" } },
+          where: { id: "abc" },
         }),
       ).toThrow(ShapeError);
     });
@@ -622,14 +622,14 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       expect(() =>
         guarded.update({
           data: { title: "x" },
-          where: { id: { equals: "abc" } },
+          where: { id: "abc" },
           select: { id: true },
         }),
       ).toThrow(ShapeError);
@@ -646,13 +646,13 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true, status: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       guarded.update({
         data: { title: "Only title" },
-        where: { id: { equals: "abc" } },
+        where: { id: "abc" },
       });
 
       expect(calls.update[0].data).toEqual({ title: "Only title" });
@@ -669,13 +669,13 @@ describe("model-guard", () => {
         } as any,
         {
           data: { description: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       guarded.update({
         data: { description: null },
-        where: { id: { equals: "abc" } },
+        where: { id: "abc" },
       });
 
       expect(calls.update[0].data).toEqual({ description: null });
@@ -707,9 +707,9 @@ describe("model-guard", () => {
       expect(calls.update[0].where).toEqual({ id: "abc" });
     });
 
-    it("update with { id: true } shape accepts { equals } wrapper", () => {
+    it("update with { id: true } shape rejects { equals } wrapper", () => {
       const ext = makeExtension();
-      const { calls, handler } = makeDelegateMock();
+      const { handler } = makeDelegateMock();
 
       const guarded = ext.$allModels.guard.call(
         {
@@ -722,18 +722,17 @@ describe("model-guard", () => {
         },
       );
 
-      guarded.update({
-        data: { title: "Updated" },
-        where: { id: { equals: "abc" } },
-      });
-
-      expect(calls.update.length).toBe(1);
-      expect(calls.update[0].where).toEqual({ id: "abc" });
+      expect(() =>
+        guarded.update({
+          data: { title: "Updated" },
+          where: { id: { equals: "abc" } },
+        }),
+      ).toThrow(ShapeError);
     });
 
-    it("update with { id: { equals: true } } shape accepts direct value", () => {
+    it("update rejects { id: { equals: true } } shape", () => {
       const ext = makeExtension();
-      const { calls, handler } = makeDelegateMock();
+      const { handler } = makeDelegateMock();
 
       const guarded = ext.$allModels.guard.call(
         {
@@ -746,13 +745,12 @@ describe("model-guard", () => {
         },
       );
 
-      guarded.update({
-        data: { title: "Updated" },
-        where: { id: "abc" },
-      });
-
-      expect(calls.update.length).toBe(1);
-      expect(calls.update[0].where).toEqual({ id: "abc" });
+      expect(() =>
+        guarded.update({
+          data: { title: "Updated" },
+          where: { id: "abc" },
+        }),
+      ).toThrow(ShapeError);
     });
 
     it("delete with { id: true } shape produces direct value", () => {
@@ -775,9 +773,30 @@ describe("model-guard", () => {
       expect(calls.delete[0].where).toEqual({ id: "abc" });
     });
 
-    it("delete with { id: { equals: true } } shape accepts { equals } wrapper", () => {
+    it("delete with { id: true } shape rejects { equals } wrapper", () => {
       const ext = makeExtension();
-      const { calls, handler } = makeDelegateMock();
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          where: { id: true },
+        },
+      );
+
+      expect(() =>
+        guarded.delete({
+          where: { id: { equals: "abc" } },
+        }),
+      ).toThrow(ShapeError);
+    });
+
+    it("delete rejects { id: { equals: true } } shape", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
 
       const guarded = ext.$allModels.guard.call(
         {
@@ -789,10 +808,9 @@ describe("model-guard", () => {
         },
       );
 
-      guarded.delete({ where: { id: { equals: "abc" } } });
-
-      expect(calls.delete.length).toBe(1);
-      expect(calls.delete[0].where).toEqual({ id: "abc" });
+      expect(() => guarded.delete({ where: { id: "abc" } })).toThrow(
+        ShapeError,
+      );
     });
 
     it("upsert with unique where produces direct value", () => {
@@ -821,23 +839,50 @@ describe("model-guard", () => {
       expect(calls.upsert[0].where).toEqual({ id: "abc" });
     });
 
-    it("unique where rejects non-equals operators in shape", () => {
+    it("upsert rejects { equals } wrapper in unique where body", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          where: { id: true },
+          create: { title: true },
+          update: { title: true },
+        },
+      );
+
       expect(() =>
-        ext.$allModels.guard.call(
-          {
-            $name: "Project",
-            $parent: { project: handler },
-          } as any,
-          {
-            data: { title: true },
-            where: { id: { contains: true } },
-          },
-        ).update({
+        guarded.upsert({
+          where: { id: { equals: "abc" } },
+          create: { title: "New" },
+          update: { title: "Updated" },
+        }),
+      ).toThrow(ShapeError);
+    });
+
+    it("unique where rejects non-direct object operators in shape", () => {
+      const ext = makeExtension();
+      const { handler } = makeDelegateMock();
+
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { id: { contains: true } },
+        },
+      );
+
+      expect(() =>
+        guarded.update({
           data: { title: "x" },
-          where: { id: { contains: "abc" } },
+          where: { id: "abc" },
         }),
       ).toThrow(ShapeError);
     });
@@ -846,17 +891,19 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { OR: { id: true } },
+        },
+      );
+
       expect(() =>
-        ext.$allModels.guard.call(
-          {
-            $name: "Project",
-            $parent: { project: handler },
-          } as any,
-          {
-            data: { title: true },
-            where: { OR: { id: { equals: true } } },
-          },
-        ).update({
+        guarded.update({
           data: { title: "x" },
           where: { id: "abc" },
         }),
@@ -867,17 +914,19 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
+      const guarded = ext.$allModels.guard.call(
+        {
+          $name: "Project",
+          $parent: { project: handler },
+        } as any,
+        {
+          data: { title: true },
+          where: { title: true },
+        },
+      );
+
       expect(() =>
-        ext.$allModels.guard.call(
-          {
-            $name: "Project",
-            $parent: { project: handler },
-          } as any,
-          {
-            data: { title: true },
-            where: { title: true },
-          },
-        ).update({
+        guarded.update({
           data: { title: "x" },
           where: { title: "y" },
         }),
@@ -895,7 +944,7 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true },
-          where: { id: { equals: "forced-id" } },
+          where: { id: "forced-id" },
         },
       );
 
@@ -1111,11 +1160,11 @@ describe("model-guard", () => {
           $parent: { project: handler },
         } as any,
         {
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
-      guarded.delete({ where: { id: { equals: "abc" } } });
+      guarded.delete({ where: { id: "abc" } });
 
       expect(calls.delete.length).toBe(1);
       expect(calls.delete[0].where).toEqual({ id: "abc" });
@@ -1132,13 +1181,13 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
-      expect(() =>
-        guarded.delete({ where: { id: { equals: "abc" } } }),
-      ).toThrow(ShapeError);
+      expect(() => guarded.delete({ where: { id: "abc" } })).toThrow(
+        ShapeError,
+      );
     });
 
     it("delete requires non-empty where", () => {
@@ -1166,13 +1215,13 @@ describe("model-guard", () => {
           $parent: { project: handler },
         } as any,
         {
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       expect(() =>
         guarded.delete({
-          where: { id: { equals: "abc" } },
+          where: { id: "abc" },
           select: { id: true },
         }),
       ).toThrow(ShapeError);
@@ -1363,7 +1412,7 @@ describe("model-guard", () => {
         {
           "/projects/:id": {
             data: { title: true },
-            where: { id: { equals: true } },
+            where: { id: true },
           },
         },
         "/projects/abc123",
@@ -1371,7 +1420,7 @@ describe("model-guard", () => {
 
       guarded.update({
         data: { title: "Updated" },
-        where: { id: { equals: "abc123" } },
+        where: { id: "abc123" },
       });
 
       expect(calls.update.length).toBe(1);
@@ -1441,13 +1490,13 @@ describe("model-guard", () => {
         } as any,
         (ctx: any) => ({
           data: { title: true },
-          ...(ctx.role === "admin" ? { where: { id: { equals: true } } } : {}),
+          ...(ctx.role === "admin" ? { where: { id: true } } : {}),
         }),
       );
 
       guarded.update({
         data: { title: "x" },
-        where: { id: { equals: "abc" } },
+        where: { id: "abc" },
       });
 
       expect(calls.update.length).toBe(1);
@@ -1618,13 +1667,13 @@ describe("model-guard", () => {
         } as any,
         {
           data: { title: true },
-          where: { id: { equals: true } },
+          where: { id: true },
         },
       );
 
       guarded.update({
         data: { title: "x" },
-        where: { id: { equals: "abc" } },
+        where: { id: "abc" },
       });
     });
   });

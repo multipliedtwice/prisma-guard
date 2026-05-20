@@ -14,7 +14,7 @@ const typeMap: TypeMap = {
 const enumMap: EnumMap = {}
 const zodChains: ZodChains = {}
 const zodDefaults: ZodDefaults = {}
-const uniqueMap: UniqueMap = { Item: [['id']] }
+const uniqueMap: UniqueMap = { Item: [{ fields: ['id'], selector: 'id' }] }
 
 function makeDelegateMock() {
   const calls: Record<string, any[]> = {}
@@ -125,13 +125,13 @@ describe('inline refine in data shapes', () => {
           name: (base: any) => base.min(1),
           count: (base: any) => base.min(0),
         },
-        where: { id: { equals: true } },
+        where: { id: true },
       },
     )
 
     guarded.update({
       data: { name: 'updated', count: 5 },
-      where: { id: { equals: 'abc' } },
+      where: { id: 'abc' },
     })
 
     expect(calls.update[0].data).toEqual({ name: 'updated', count: 5 })

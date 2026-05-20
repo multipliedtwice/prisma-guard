@@ -102,7 +102,10 @@ const typeMap: TypeMap = {
 const enumMap: EnumMap = {};
 const zodChains: ZodChains = {};
 const zodDefaults: ZodDefaults = {};
-const uniqueMap: UniqueMap = { Project: [["id"]], Task: [["id"]] };
+const uniqueMap: UniqueMap = {
+  Project: [{ fields: ["id"], selector: "id" }],
+  Task: [{ fields: ["id"], selector: "id" }],
+};
 
 function makeDelegateMock() {
   const calls: Record<string, any[]> = {};
@@ -215,14 +218,14 @@ describe("model-guard projection", () => {
       { $name: "Project", $parent: { project: handler } } as any,
       {
         data: { title: true },
-        where: { id: { equals: true } },
+        where: { id: true },
         include: { tasks: true },
       },
     );
 
     guarded.update({
       data: { title: "Updated" },
-      where: { id: { equals: "abc" } },
+      where: { id: "abc" },
       include: { tasks: true },
     });
 
@@ -236,11 +239,11 @@ describe("model-guard projection", () => {
 
     const guarded = ext.$allModels.guard.call(
       { $name: "Project", $parent: { project: handler } } as any,
-      { where: { id: { equals: true } }, select: { id: true, title: true } },
+      { where: { id: true }, select: { id: true, title: true } },
     );
 
     guarded.delete({
-      where: { id: { equals: "abc" } },
+      where: { id: "abc" },
       select: { id: true },
     });
 

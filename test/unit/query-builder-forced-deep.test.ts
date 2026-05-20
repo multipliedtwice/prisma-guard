@@ -21,27 +21,35 @@ const typeMap: TypeMap = {
 }
 
 const enumMap: EnumMap = {}
-const uniqueMap: UniqueMap = { User: [['id']], Post: [['id']] }
+
+const uniqueMap: UniqueMap = {
+  User: [{ fields: ['id'], selector: 'id' }],
+  Post: [{ fields: ['id'], selector: 'id' }],
+}
 
 const scalarBase = createScalarBase(false)
 
-function qb() { return createQueryBuilder(typeMap, enumMap, uniqueMap, scalarBase) }
+function qb() {
+  return createQueryBuilder(typeMap, enumMap, uniqueMap, scalarBase)
+}
 
 describe('forced where on findUnique', () => {
   it('merges forced where into unique where preserving top-level keys', () => {
     const schema = qb().buildQuerySchema('User', 'findUnique', {
-      where: { id: { equals: true }, companyId: { equals: 99 } },
+      where: { id: true, companyId: 99 },
     })
-    const result = schema.parse({ where: { id: { equals: 5 } } })
+
+    const result = schema.parse({ where: { id: 5 } })
+
     expect(result.where).toEqual({
-      id: { equals: 5 },
-      AND: [{ companyId: { equals: 99 } }],
+      id: 5,
+      companyId: 99,
     })
   })
 })
 
 describe('_count with forced where in include', () => {
- it('builds _count.select with forced where on relation', () => {
+  it('builds _count.select with forced where on relation', () => {
     const schema = qb().buildQuerySchema('User', 'findMany', {
       include: {
         _count: {
@@ -53,14 +61,17 @@ describe('_count with forced where in include', () => {
         },
       },
     })
+
     const result = schema.parse({
       include: { _count: { select: { posts: true } } },
     })
+
     const countPosts = (result.include as any)._count.select.posts
+
     expect(countPosts).toEqual({ where: { userId: { equals: 42 } } })
   })
 
- it('preserves _count.select with forced where when client sends object', () => {
+  it('preserves _count.select with forced where when client sends object', () => {
     const schema = qb().buildQuerySchema('User', 'findMany', {
       include: {
         _count: {
@@ -72,10 +83,21 @@ describe('_count with forced where in include', () => {
         },
       },
     })
+
     const result = schema.parse({
-      include: { _count: { select: { posts: { where: { title: { contains: 'hello' } } } } } },
+      include: {
+        _count: {
+          select: {
+            posts: {
+              where: { title: { contains: 'hello' } },
+            },
+          },
+        },
+      },
     })
+
     const countPosts = (result.include as any)._count.select.posts
+
     expect(countPosts.where).toEqual({
       AND: [{ title: { contains: 'hello' } }, { userId: { equals: 42 } }],
     })
@@ -93,63 +115,73 @@ describe('nested forced tree with include inside include', () => {
         },
       },
     })
+
     const result = schema.parse({
       include: { posts: { include: { author: true } } },
     })
+
     expect((result.include as any).posts.include.author).toBe(true)
   })
 })
 
 describe('forced where conflict in relation filters', () => {
   it('throws on conflicting forced values in nested relation filter', () => {
-    expect(() => qb().buildQuerySchema('User', 'findMany', {
-      where: {
-        posts: {
-          some: {
-            userId: { equals: 1 },
-          },
-        },
-        AND: {
-          posts: {
-            some: {
-              userId: { equals: 2 },
-            },
-          },
-        },
-      },
-    })).toThrow(ShapeError)
-  })
-
-  it('allows identical forced values in nested relation filter', () => {
-    expect(() => qb().buildQuerySchema('User', 'findMany', {
-      where: {
-        posts: {
-          some: {
-            userId: { equals: 1 },
-          },
-        },
-        AND: {
+    expect(() =>
+      qb().buildQuerySchema('User', 'findMany', {
+        where: {
           posts: {
             some: {
               userId: { equals: 1 },
             },
           },
+          AND: {
+            posts: {
+              some: {
+                userId: { equals: 2 },
+              },
+            },
+          },
         },
-      },
-    })).not.toThrow()
+      }),
+    ).toThrow(ShapeError)
+  })
+
+  it('allows identical forced values in nested relation filter', () => {
+    expect(() =>
+      qb().buildQuerySchema('User', 'findMany', {
+        where: {
+          posts: {
+            some: {
+              userId: { equals: 1 },
+            },
+          },
+          AND: {
+            posts: {
+              some: {
+                userId: { equals: 1 },
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow()
   })
 })
 
 describe('unique where validation', () => {
   it('validates resolved unique where covers constraint', () => {
     const schema = qb().buildQuerySchema('User', 'findUnique', {
-      where: { id: { equals: true } },
+      where: { id: true },
     })
-    const result = schema.parse({ where: { id: { equals: 5 } } })
-    expect(result.where).toEqual({ id: { equals: 5 } })
+
+    const result = schema.parse({ where: { id: 5 } })
+
+    expect(result.where).toEqual({ id: 5 })
   })
 
   it('validates findUniqueOrThrow requires where in shape', () => {
-    expect(() => qb().buildQuerySchema('User', 'findUniqueOrThrow', {})).toThrow(ShapeError)
+    expect(() =>
+      qb().buildQuerySchema('User', 'findUniqueOrThrow', {}),
+    ).toThrow(ShapeError)
   })
 })

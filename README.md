@@ -453,6 +453,67 @@ take: { max: 100, default: 25 }  // explicit max and default
 take: { max: 100 }               // max only, no default
 ```
 
+### Unique where shapes
+
+`findUnique`, `findUniqueOrThrow`, `update`, `delete`, and `upsert` use Prisma's `WhereUniqueInput` syntax. For these methods, unique fields are configured directly in the shape:
+```ts
+await prisma.project
+  .guard({
+    where: { id: true },
+  })
+  .update({
+    data: { title: 'Updated' },
+    where: { id: 'abc123' },
+  })
+```
+
+Do not use filter operator objects such as `{ id: { equals: true } }` in unique where shapes. That syntax belongs to normal `WhereInput` filters used by methods such as `findMany`, `findFirst`, `count`, `updateMany`, and `deleteMany`.
+
+For compound unique constraints, use Prisma's generated compound selector name:
+```prisma
+model ProjectMember {
+  tenantId String
+  userId   String
+
+  @@unique([tenantId, userId])
+}
+```
+
+```ts
+await prisma.projectMember
+  .guard({
+    where: {
+      tenantId_userId: {
+        tenantId: true,
+        userId: true,
+      },
+    },
+  })
+  .update({
+    data: req.body.data,
+    where: {
+      tenantId_userId: {
+        tenantId: 'tenant_1',
+        userId: 'user_1',
+      },
+    },
+  })
+```
+
+Named compound constraints use the configured name as the selector:
+```prisma
+@@unique([tenantId, slug], name: "project_slug_per_tenant")
+```
+
+```ts
+where: {
+  project_slug_per_tenant: {
+    tenantId: true,
+    slug: true,
+  },
+}
+```
+
 ### Creates
 ```ts
 await prisma.project
@@ -473,15 +534,15 @@ Fields with `@zod .default(...)` or `@zod .catch(...)` that are omitted from the
 await prisma.project
   .guard({
     data: { title: true },
-    where: { id: { equals: true } },
+    where: { id: true },
   })
   .update({
     data: { title: 'New title' },
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
   })
 ```
 
-In update mode, all `data` fields are optional. The `where` shape enforces which filters the client can use.
+In update mode, all `data` fields are optional. The `where` shape must use Prisma unique selector syntax for `update`.
 
 ### Forced values
 
@@ -519,12 +580,12 @@ Forced where conditions are conflict-checked during shape construction. If the s
 ```ts
 await prisma.project
   .guard({
-    where: { id: { equals: true } },
+    where: { id: true },
   })
-  .delete({ where: { id: { equals: 'abc123' } } })
+  .delete({ where: { id: 'abc123' } })
 ```
 
-`data` is not valid for delete shapes.
+`data` is not valid for delete shapes. The `where` shape must use Prisma unique selector syntax for `delete`.
 
 ### Batch creates
 ```ts
@@ -689,6 +750,7 @@ await prisma.post
         disconnect: { id: true },
       },
     },
+    where: { id: true },
   })
   .update({
     data: {
@@ -698,7 +760,7 @@ await prisma.post
         disconnect: [{ id: 'tag3' }],
       },
     },
-    where: { id: { equals: 'post1' } },
+    where: { id: 'post1' },
   })
 ```
 
@@ -736,6 +798,7 @@ await prisma.user
         },
       },
     },
+    where: { id: true },
   })
   .update({
     data: {
@@ -745,7 +808,7 @@ await prisma.user
         connect: [{ id: 'existing-post-id' }],
       },
     },
-    where: { id: { equals: userId } },
+    where: { id: userId },
   })
 ```
 
@@ -1069,7 +1132,7 @@ await prisma.project
 await prisma.project
   .guard({
     data: { title: true },
-    where: { id: { equals: true } },
+    where: { id: true },
     select: {
       id: true,
       title: true,
@@ -1080,7 +1143,7 @@ await prisma.project
   })
   .update({
     data: { title: 'Updated' },
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
     select: {
       id: true,
       title: true,
@@ -1095,11 +1158,11 @@ await prisma.project
 ```ts
 await prisma.project
   .guard({
-    where: { id: { equals: true } },
+    where: { id: true },
     include: { members: true },
   })
   .delete({
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
     include: { members: true },
   })
 ```
@@ -1197,12 +1260,12 @@ Upsert is supported with dedicated `create` and `update` shape keys that mirror 
 ```ts
 await prisma.project
   .guard({
-    where: { id: { equals: true } },
+    where: { id: true },
     create: { title: true, status: true },
     update: { title: true },
   })
   .upsert({
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
     create: { title: 'New Project', status: 'active' },
     update: { title: 'Updated Title' },
   })
@@ -1214,7 +1277,7 @@ Upsert shapes must define all three: `where`, `create`, and `update`. Missing an
 
 The `create` branch follows the same rules as regular create shapes: all required fields without defaults must be accounted for (as client-allowed, forced, scope FK, or `@zod .default(...)`/`@zod .catch(...)`). The `update` branch follows update rules: all fields are optional.
 
-The `where` must satisfy a unique constraint with equality operators, same as `update` and `delete`.
+The `where` must satisfy a unique constraint using Prisma unique selector syntax, same as `update` and `delete`. Filter operator objects such as `{ id: { equals: true } }` are rejected in unique where shapes.
 
 ### All data shape value types work
 ```ts
@@ -1222,7 +1285,7 @@ import { force } from 'prisma-guard'
 
 await prisma.project
   .guard({
-    where: { id: { equals: true } },
+    where: { id: true },
     create: {
       title: (base) => base.min(1).max(200),
       status: 'draft',
@@ -1233,7 +1296,7 @@ await prisma.project
     },
   })
   .upsert({
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
     create: { title: 'New Project' },
     update: { title: 'Updated' },
   })
@@ -1245,13 +1308,13 @@ Upsert returns a record and supports `select` and `include`:
 ```ts
 await prisma.project
   .guard({
-    where: { id: { equals: true } },
+    where: { id: true },
     create: { title: true, status: true },
     update: { title: true },
     select: { id: true, title: true, status: true },
   })
   .upsert({
-    where: { id: { equals: 'abc123' } },
+    where: { id: 'abc123' },
     create: { title: 'New', status: 'active' },
     update: { title: 'Updated' },
     select: { id: true, title: true },
@@ -1274,18 +1337,18 @@ Upsert works with named shapes and context-dependent shapes:
 await prisma.project
   .guard({
     '/admin/projects/:id': {
-      where: { id: { equals: true } },
+      where: { id: true },
       create: { title: true, status: true, priority: true },
       update: { title: true, status: true, priority: true },
     },
     '/editor/projects/:id': {
-      where: { id: { equals: true } },
+      where: { id: true },
       create: { title: true, status: 'draft' },
       update: { title: true },
     },
   }, req.headers['x-caller'])
   .upsert({
-    where: { id: { equals: req.params.id } },
+    where: { id: req.params.id },
     create: req.body.create,
     update: req.body.update,
   })
@@ -1339,16 +1402,16 @@ await prisma.project
   .guard({
     '/admin/projects/:id': {
       data: { title: true, status: true, priority: true },
-      where: { id: { equals: true } },
+      where: { id: true },
     },
     '/editor/projects/:id': {
       data: { title: true },
-      where: { id: { equals: true } },
+      where: { id: true },
     },
   }, req.headers['x-caller'])
   .update({
     data: req.body.data,
-    where: { id: { equals: req.params.id } },
+    where: { id: req.params.id },
   })
 ```
 
@@ -1605,20 +1668,41 @@ If this behavior is not what you want, restructure your schema so the model refe
 
 ## findUnique behavior
 
-Prisma `findUnique` only accepts declared unique selectors.
+Prisma `findUnique` and `findUniqueOrThrow` only accept declared unique selectors.
 
-This is valid:
+This is valid Prisma unique selector syntax:
 ```ts
 await prisma.project.findUnique({
-  where: { id: { equals: projectId } },
+  where: { id: projectId },
 })
 ```
 
-This is not generally valid unless declared as a composite unique:
+For compound unique constraints, Prisma uses a named selector object:
+```prisma
+model Project {
+  tenantId String
+  slug     String
+
+  @@unique([tenantId, slug])
+}
+```
+
+```ts
+await prisma.project.findUnique({
+  where: {
+    tenantId_slug: {
+      tenantId,
+      slug,
+    },
+  },
+})
+```
+
+This flat where object is not valid for `findUnique` unless your Prisma schema declares a matching compound selector with that exact shape:
 ```ts
 where: {
-  id: { equals: projectId },
-  tenantId: { equals: tenantId },
+  id: projectId,
+  tenantId,
 }
 ```
 
@@ -1649,7 +1733,7 @@ This is weaker because:
 
 For tenant isolation, `"reject"` is the safer production default.
 
-Guard shapes for `findUnique` and `findUniqueOrThrow` must define `where`. A shape without `where` for these methods throws `ShapeError`.
+Guard shapes for `findUnique` and `findUniqueOrThrow` must define `where`. A shape without `where` for these methods throws `ShapeError`. Unique where shapes must use Prisma unique selector syntax, for example `{ id: true }` or `{ tenantId_slug: { tenantId: true, slug: true } }`.
 
 ---
 
@@ -1771,15 +1855,19 @@ If a model references a scope root through composite foreign keys, that specific
 
 Handle these models explicitly via shape rules.
 
-### Compound unique selectors
-
-Guard currently records unique constraints as arrays of field names but does not generate the named compound selector schemas that Prisma uses for `@@unique` constraints. For example, `@@unique([firstName, lastName])` requires the selector `{ firstName_lastName: { firstName: "A", lastName: "B" } }`, but guard produces flat `{ firstName: "A", lastName: "B" }` output. This affects `findUnique`, `update`, `delete`, `upsert`, `connect`, and `connectOrCreate` with compound unique constraints.
-
-Single-field unique constraints work correctly. Compound unique support is planned.
-
 ### Cursor fields must cover a unique constraint
 
 Prisma requires cursor-based pagination to use uniquely-identifiable fields. Guard enforces this at shape construction time: cursor fields must cover at least one unique constraint from the model. Non-unique cursor shapes are rejected with `ShapeError`.
+
+Compound cursor selectors use the same Prisma selector syntax as compound unique `where` values:
+```ts
+cursor: {
+  tenantId_slug: {
+    tenantId: true,
+    slug: true,
+  },
+}
+```
 
 ### `@zod` on list fields applies to the array
 
@@ -2154,7 +2242,6 @@ Node 22
 
 Possible future improvements:
 
-* compound unique selector support
 * richer relation-level policies
 * nested write scope enforcement helpers
 * adapter integrations for SQL-backed runtimes

@@ -30,7 +30,7 @@ export interface BuiltSelectResult {
 interface ProjectionDeps {
   buildWhereSchema(model: string, config: Record<string, unknown>): WhereBuiltResult
   buildOrderBySchema(model: string, config: Record<string, OrderByFieldConfig>): z.ZodTypeAny
-  buildCursorSchema(model: string, config: Record<string, true>): z.ZodTypeAny
+  buildCursorSchema(model: string, config: Record<string, unknown>): z.ZodTypeAny
   buildTakeSchema(config: number | { max: number; default?: number }): z.ZodTypeAny
 }
 

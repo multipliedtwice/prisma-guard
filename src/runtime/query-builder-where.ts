@@ -226,6 +226,19 @@ export function createWhereBuilder(
       );
     }
 
+    for (const key of Object.keys(scalarConditions)) {
+      if (COMBINATOR_KEYS.has(key)) continue;
+      if (!(key in fieldSchemas)) {
+        fieldSchemas[key] = z.object({}).strict().optional();
+      }
+    }
+
+    for (const key of Object.keys(relationForced)) {
+      if (!(key in fieldSchemas)) {
+        fieldSchemas[key] = z.object({}).strict().optional();
+      }
+    }
+
     const schema =
       Object.keys(fieldSchemas).length > 0
         ? z.object(fieldSchemas).strict().optional()
@@ -583,7 +596,11 @@ export function createWhereBuilder(
   function buildDirectUniqueSchema(fieldMeta: FieldMeta): z.ZodTypeAny {
     const base = createBaseType(fieldMeta, enumMap, scalarBase);
 
-    if (!fieldMeta.isEnum && !fieldMeta.isRelation && !fieldMeta.isUnsupported) {
+    if (
+      !fieldMeta.isEnum &&
+      !fieldMeta.isRelation &&
+      !fieldMeta.isUnsupported
+    ) {
       return wrapWithInputCoercion(fieldMeta.type, fieldMeta.isList, base);
     }
 
@@ -767,7 +784,12 @@ export function createWhereBuilder(
         continue;
       }
 
-      forcedConditions[key] = parseForcedUniqueValue(model, key, fieldMeta, value);
+      forcedConditions[key] = parseForcedUniqueValue(
+        model,
+        key,
+        fieldMeta,
+        value,
+      );
       forcedOnlyKeys.add(key);
     }
 

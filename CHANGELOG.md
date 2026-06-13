@@ -1,3 +1,10 @@
+# [1.26.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.25.0...v1.26.0) (2026-06-13)
+
+
+### Features
+
+* enhance createWhereBuilder to support optional field schemas for scalar and relation conditions ([9cc1674](https://github.com/multipliedtwice/prisma-guard/commit/9cc1674407fe979748aa602c3049b6fe507781a5))
+
 # [1.25.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.24.0...v1.25.0) (2026-05-20)
 
 

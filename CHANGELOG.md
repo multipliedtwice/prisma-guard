@@ -1,3 +1,10 @@
+## [1.26.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.0...v1.26.1) (2026-06-15)
+
+
+### Bug Fixes
+
+* improve toPlainObject function to handle various data types and ensure proper normalization of request body ([73612d4](https://github.com/multipliedtwice/prisma-guard/commit/73612d4b2239a86a5f306301d28b8a72b3be248e))
+
 # [1.26.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.25.0...v1.26.0) (2026-06-13)
 
 

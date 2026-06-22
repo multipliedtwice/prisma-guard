@@ -1,17 +1,33 @@
 import type { DMMF } from '@prisma/generator-helper'
 
-export function emitClient(_dmmf: DMMF.Document, prismaClientImport: string): string {
+function delegateKey(modelName: string): string {
+  return modelName.charAt(0).toLowerCase() + modelName.slice(1)
+}
+
+function emitGuardModelExtension(dmmf: DMMF.Document): string {
+  const entries = dmmf.datamodel.models
+    .map((model) => {
+      const key = delegateKey(model.name)
+      return (
+        `  ${key}: {\n` +
+        `    guard(input: GuardInput, caller?: string): GuardedModel<PrismaClient['${key}']>\n` +
+        `  }`
+      )
+    })
+    .join('\n')
+
+  return `interface GuardModelExtension {\n${entries}\n}\n`
+}
+
+export function emitClient(dmmf: DMMF.Document, prismaClientImport: string): string {
   return (
     `import type { PrismaClient } from '${prismaClientImport}'\n` +
     `import type { GuardInput, GuardedModel } from 'prisma-guard'\n` +
     `import { createGuard } from 'prisma-guard'\n` +
     `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from './index'\n` +
     `import type { ScopeRoot } from './index'\n\n` +
-    `interface GuardModelExtension {\n` +
-    `  $allModels: {\n` +
-    `    guard<TDelegate>(this: TDelegate, input: GuardInput, caller?: string): GuardedModel<TDelegate>\n` +
-    `  }\n` +
-    `}\n\n` +
+    emitGuardModelExtension(dmmf) +
+    `\n` +
     `export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({\n` +
     `  scopeMap: SCOPE_MAP,\n` +
     `  typeMap: TYPE_MAP,\n` +

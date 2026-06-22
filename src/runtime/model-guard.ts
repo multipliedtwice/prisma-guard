@@ -1447,16 +1447,21 @@ export function createModelGuardExtension(config: {
     return wrapped;
   }
 
-  return {
-    $allModels: {
+  const extension: Record<
+    string,
+    { guard: (input: GuardInput, caller?: string) => any }
+  > = {};
+
+  for (const modelName of Object.keys(typeMap)) {
+    const key = toDelegateKey(modelName);
+
+    extension[key] = {
       guard(this: any, input: GuardInput, caller?: string) {
-        const modelName: string = this.$name;
-        const delegateKey = toDelegateKey(modelName);
-        const modelDelegate = this.$parent[delegateKey];
+        const modelDelegate = this.$parent[key];
 
         if (!modelDelegate) {
           throw new ShapeError(
-            `Could not resolve Prisma delegate for model "${modelName}" (key: "${delegateKey}")`,
+            `Could not resolve Prisma delegate for model "${modelName}" (key: "${key}")`,
           );
         }
 
@@ -1471,6 +1476,8 @@ export function createModelGuardExtension(config: {
 
         return wrapMethods(methods);
       },
-    },
-  };
+    };
+  }
+
+  return extension;
 }

@@ -1,3 +1,11 @@
+## [1.26.2](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.1...v1.26.2) (2026-06-22)
+
+
+### Bug Fixes
+
+* refactor emitClient and createModelGuardExtension to enhance model delegation and guard interface generation ([c7717fb](https://github.com/multipliedtwice/prisma-guard/commit/c7717fb337985276f084db74cdb8c09a386fea0b))
+* replace $allModels.guard with specific model guards for improved clarity and functionality ([b551431](https://github.com/multipliedtwice/prisma-guard/commit/b551431428021ed88c15812e226b6114dc989a54))
+
 ## [1.26.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.0...v1.26.1) (2026-06-15)
 
 

@@ -53,8 +53,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { calls, handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: (base: any) => base.min(1).max(50),
@@ -70,8 +70,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: (base: any) => base.min(5),
@@ -86,8 +86,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: () => 'not a schema' as any,
@@ -102,8 +102,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: () => { throw new Error('refine broke') },
@@ -118,8 +118,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { calls, handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: (base: any) => base.min(1),
@@ -141,8 +141,8 @@ describe('inline refine in data shapes', () => {
     const ext = makeExtension()
     const { calls, handler } = makeDelegateMock()
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: 'Item', $parent: { item: handler } } as any,
+    const guarded = ext.item.guard.call(
+      { $parent: { item: handler } } as any,
       {
         data: {
           name: true,

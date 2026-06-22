@@ -161,8 +161,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { calls, handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { data: { title: true }, include: { tasks: true } },
     );
 
@@ -179,8 +179,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { calls, handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { data: { title: true }, select: { id: true, title: true } },
     );
 
@@ -197,8 +197,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { data: { title: true } },
     );
 
@@ -214,8 +214,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { calls, handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       {
         data: { title: true },
         where: { id: true },
@@ -237,8 +237,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { calls, handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { where: { id: true }, select: { id: true, title: true } },
     );
 
@@ -255,8 +255,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { data: { title: true }, select: { id: true }, include: { tasks: true } },
     );
 
@@ -280,8 +280,8 @@ describe("model-guard projection", () => {
     const ext = makeExtension();
     const { calls, handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       {
         data: { title: true },
         include: {
@@ -309,8 +309,8 @@ describe("model-guard wrapZodErrors", () => {
     const ext = makeExtension({ wrapZodErrors: true });
     const { handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { data: { title: true } },
     );
 
@@ -321,8 +321,8 @@ describe("model-guard wrapZodErrors", () => {
     const ext = makeExtension({ wrapZodErrors: true });
     const { handler } = makeDelegateMock();
 
-    const guarded = ext.$allModels.guard.call(
-      { $name: "Project", $parent: { project: handler } } as any,
+    const guarded = ext.project.guard.call(
+      { $parent: { project: handler } } as any,
       { where: { title: { contains: true } } },
     );
 

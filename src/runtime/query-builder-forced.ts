@@ -79,7 +79,15 @@ function tryInlineForcedField(
   if (!isPlainObject(forcedValue)) return false;
 
   const existing = result[field];
-  if (!isPlainObject(existing)) return false;
+
+  if (!isPlainObject(existing)) {
+    const merged: Record<string, unknown> = { equals: existing };
+    for (const [op, value] of Object.entries(forcedValue)) {
+      merged[op] = deepClone(value);
+    }
+    result[field] = merged;
+    return true;
+  }
 
   const merged: Record<string, unknown> = { ...existing };
 

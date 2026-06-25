@@ -695,6 +695,26 @@ where: {
 }
 ```
 
+**Case-insensitive string filtering with `mode`:**
+
+String fields support Prisma's `mode` modifier alongside `contains`, `startsWith`, `endsWith`, and `equals`. Use `mode: true` to let the client choose, or force a specific mode in the shape:
+```ts
+where: {
+  // client controls mode
+  title: { contains: true, mode: true },
+
+  // server forces case-insensitive matching
+  description: { contains: true, mode: 'insensitive' },
+
+  // server forces case-insensitive matching using force()
+  slug: { contains: true, mode: force('insensitive') },
+}
+```
+
+`mode` is also supported on `Json` fields with the `string_contains`, `string_starts_with`, and `string_ends_with` operators. The shape must include at least one mode-compatible operator alongside `mode` — `{ title: { mode: true } }` alone is rejected.
+
+When `mode` is forced (e.g. `mode: 'insensitive'`) and the client provides a compatible operator value (e.g. `{ contains: 'foo' }`), the forced mode is inlined into the same operator object, producing `{ contains: 'foo', mode: 'insensitive' }` in the final Prisma query. This is required for `mode` to actually affect the query — Prisma's `mode` is a modifier that must be co-located with the string operator it modifies.
+
 **Relation existence checks with `is: null` / `isNot: null`:**
 
 To-one relation filters support null checks for testing relation existence. In the shape config, use `null` as the operator value to force a null check:
@@ -1951,6 +1971,16 @@ Fields in `orderBy`, `cursor`, `having`, `_count` (object form), `_avg`, `_sum`,
 
 Both `@zod .default(...)` and `@zod .catch(...)` are tracked in the generated `ZOD_DEFAULTS` map. Fields with either directive are exempted from create completeness checks and auto-injected as forced values when omitted from data shapes. The `.catch()` behavior (fallback on parse error) is preserved in create mode by not wrapping the schema with `.optional()`.
 
+### `mode` modifier in where filters
+
+Prisma's `mode` modifier for case-insensitive string filtering is supported on `String` fields (with `contains`, `startsWith`, `endsWith`, `equals`) and `Json` fields (with `string_contains`, `string_starts_with`, `string_ends_with`). The shape syntax is `{ field: { contains: true, mode: true } }` for client-controlled mode or `{ field: { contains: true, mode: 'insensitive' } }` for forced mode.
+
+When mode is forced, prisma-guard inlines the forced `mode` value into the same operator object as the client-provided string operator, producing `{ field: { contains: 'foo', mode: 'insensitive' } }` in the final query. This co-location is necessary because Prisma's `mode` is a modifier on `StringFilter` — a sibling AND clause carrying only `mode` would have no operator to modify and would be silently ignored.
+
+The same inline-merge behavior applies to any other forced operator on a field where the client provides a different operator on the same field. Forced operators that conflict with the client's value on the same op key (e.g. forced `{ equals: 'x' }` plus client `{ equals: 'y' }`) are rejected with `ShapeError` at merge time. Forced conditions on fields the client did not touch fall back to AND-wrapping, unchanged from previous behavior.
+
+A shape with `{ field: { mode: true } }` alone (no compatible string operator) is rejected with `ShapeError`.
+
 ---
 
 ## Advanced: SQL-backed runtimes
@@ -2047,6 +2077,15 @@ Caller routing is resolved before method execution: the explicit `caller` argume
 
 The context function is validated on every code path that consumes it — scope injection, caller resolution, and dynamic shape evaluation all enforce the plain-object contract and throw `PolicyError` for invalid returns. Additionally, if a context key matches a known scope root but has a non-primitive value, `PolicyError` is thrown immediately rather than silently dropping the scope.
 
+### Forced where merge strategy
+
+When a where shape includes forced conditions, prisma-guard merges them into the client's validated where in two ways:
+
+1. **Inline merge** — if a forced field's value is a plain operator object and the client also provided an operator object for the same field, the forced operator keys are merged into the client's operator object. This is required for modifiers like `mode` that must co-locate with the operator they modify. Conflicts on the same op key (different values) throw `ShapeError`.
+2. **AND-wrap** — forced fields not present in the client's where, or where the value types don't allow inline merging, are placed in a separate AND branch.
+
+If all forced fields inline successfully, the result is a flat object with no synthetic `AND` wrapper. Forced conditions inside combinators are still lifted to top-level AND constraints, following the same merge logic.
+
 ### The `force()` helper
 
 The `force()` function is exported from `prisma-guard` and creates a wrapper object with an internal symbol marker. At runtime, shape processing checks for this marker to distinguish forced values from the `true` sentinel. The wrapper is unwrapped before Zod validation, so the forced value is validated against the field's schema like any other literal. The symbol is not enumerable and does not interfere with serialization or inspection of shape objects.
@@ -2129,6 +2168,8 @@ For upsert, `create` and `update` data schemas are cached independently under na
 | context function returns non-object    | error always (PolicyError)                            |
 | conflicting forced where values        | error always (ShapeError)                             |
 | invalid context function return        | error always (PolicyError)                            |
+| `mode` modifier without compatible op  | error always (ShapeError)                             |
+| forced operator conflicts with client value | error always (ShapeError)                        |
 | `@zod .default()`/`.catch()` field omitted from shape | auto-injected as forced value             |
 | read shape with select/include, client omits | auto-applied as default projection              |
 | mutation shape with select/include, client omits | full payload unless enforceProjection enabled |
@@ -2232,6 +2273,8 @@ Node 22
 | Empty projection shape rejection           | yes            | n/a         |
 | Forced where conflict detection            | yes            | n/a         |
 | Forced boolean values via `force()`        | yes            | n/a         |
+| Case-insensitive string filtering (`mode`) | yes            | manual      |
+| Forced operator inline merge               | yes            | n/a         |
 | Strict Decimal mode                        | opt-in         | n/a         |
 | `@zod .default()`/`.catch()` auto-injection | yes           | n/a         |
 | Nested write scope enforcement             | no (top-level only) | no     |

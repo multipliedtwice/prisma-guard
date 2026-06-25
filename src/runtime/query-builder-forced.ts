@@ -44,6 +44,61 @@ type UniqueConstraintLike = {
   fields: readonly string[];
 };
 
+function forcedScalarsEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.source === b.source && a.flags === b.flags;
+  }
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => forcedScalarsEqual(v, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every(
+      (k) => k in b && forcedScalarsEqual(a[k], b[k]),
+    );
+  }
+  return false;
+}
+
+function tryInlineForcedField(
+  result: Record<string, unknown>,
+  field: string,
+  forcedValue: unknown,
+): boolean {
+  if (!(field in result)) return false;
+  if (!isPlainObject(forcedValue)) return false;
+
+  const existing = result[field];
+  if (!isPlainObject(existing)) return false;
+
+  const merged: Record<string, unknown> = { ...existing };
+
+  for (const [op, value] of Object.entries(forcedValue)) {
+    if (op in merged) {
+      if (!forcedScalarsEqual(merged[op], value)) {
+        throw new ShapeError(
+          `Conflicting where values for "${field}.${op}": client provided a different value than the forced shape`,
+        );
+      }
+      continue;
+    }
+    merged[op] = deepClone(value);
+  }
+
+  result[field] = merged;
+  return true;
+}
+
 export function mergeWhereForced(
   where: Record<string, unknown> | undefined,
   forced: WhereForced,
@@ -68,12 +123,21 @@ export function mergeWhereForced(
   }
 
   if (Object.keys(forced.conditions).length > 0) {
-    const scalarClone = deepClone(forced.conditions);
+    const remaining: Record<string, unknown> = {};
 
-    if (Object.keys(result).length === 0) {
-      result = scalarClone;
-    } else {
-      result = { AND: [result, scalarClone] };
+    for (const [field, forcedValue] of Object.entries(forced.conditions)) {
+      const inlined = tryInlineForcedField(result, field, forcedValue);
+      if (!inlined) {
+        remaining[field] = deepClone(forcedValue);
+      }
+    }
+
+    if (Object.keys(remaining).length > 0) {
+      if (Object.keys(result).length === 0) {
+        result = remaining;
+      } else {
+        result = { AND: [result, remaining] };
+      }
     }
   }
 

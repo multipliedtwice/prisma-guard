@@ -1,3 +1,10 @@
+## [1.27.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.27.0...v1.27.1) (2026-06-25)
+
+
+### Bug Fixes
+
+* enhance inline forced field handling to support merging with existing values ([7b2b359](https://github.com/multipliedtwice/prisma-guard/commit/7b2b35903490649e9a4d785db451bed120afb971))
+
 # [1.27.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.2...v1.27.0) (2026-06-25)
 
 

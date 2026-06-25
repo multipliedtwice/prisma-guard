@@ -1,3 +1,10 @@
+# [1.27.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.2...v1.27.0) (2026-06-25)
+
+
+### Features
+
+* implement inline merging for forced where conditions and enhance scalar equality checks ([cbd3f4c](https://github.com/multipliedtwice/prisma-guard/commit/cbd3f4c62b823a245519572e7fd5a54790498ced))
+
 ## [1.26.2](https://github.com/multipliedtwice/prisma-guard/compare/v1.26.1...v1.26.2) (2026-06-22)
 
 

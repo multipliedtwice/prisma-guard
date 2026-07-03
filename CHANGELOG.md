@@ -1,3 +1,10 @@
+# [1.28.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.27.1...v1.28.0) (2026-07-03)
+
+
+### Features
+
+* enhance type handling and validation in the schema ([4c5f333](https://github.com/multipliedtwice/prisma-guard/commit/4c5f333cb3cd1e8b952b4db08957a64529cbe45d))
+
 ## [1.27.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.27.0...v1.27.1) (2026-06-25)
 
 

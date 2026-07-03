@@ -1,3 +1,10 @@
+## [1.28.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.28.0...v1.28.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* update operation shape keys to include additional parameters for CRUD operations ([9d16b3b](https://github.com/multipliedtwice/prisma-guard/commit/9d16b3bee156a8437dd2ebb5da3fc25dc6fe0d0a))
+
 # [1.28.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.27.1...v1.28.0) (2026-07-03)
 
 

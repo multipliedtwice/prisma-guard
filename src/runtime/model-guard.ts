@@ -85,6 +85,9 @@ const PROJECTION_MUTATION_METHODS = new Set([
 
 const BATCH_CREATE_METHODS = new Set(['createMany', 'createManyAndReturn'])
 
+const RELATION_WRITE_CREATE_METHODS = new Set(['create'])
+const RELATION_WRITE_UPDATE_METHODS = new Set(['update'])
+
 const MAX_PROJECTION_WALK_DEPTH = 10
 
 interface BuiltProjection {
@@ -322,12 +325,13 @@ export function createModelGuardExtension(config: {
       dataConfig: Record<string, true | unknown>,
       matchedKey: string,
       wasDynamic: boolean,
+      allowRelationWrites: boolean,
     ): BuiltDataSchema {
       const skipCache = wasDynamic || hasDataRefines(dataConfig)
 
       return memoize(
         dataSchemaCache,
-        `${mode}\0${matchedKey}`,
+        `${mode}\0${matchedKey}\0${allowRelationWrites ? 'r' : 'n'}`,
         skipCache,
         () =>
           buildDataSchema(
@@ -340,6 +344,7 @@ export function createModelGuardExtension(config: {
             scalarBase,
             schemaBuilder,
             zodDefaults,
+            allowRelationWrites,
           ),
       )
     }
@@ -485,24 +490,24 @@ export function createModelGuardExtension(config: {
       }
 
       if (Object.keys(projection.forcedIncludeTree).length > 0) {
-        applyForcedTree(validated, 'include', projection.forcedIncludeTree)
+        applyForcedTree(validated!, 'include', projection.forcedIncludeTree)
       }
 
       if (Object.keys(projection.forcedSelectTree).length > 0) {
-        applyForcedTree(validated, 'select', projection.forcedSelectTree)
+        applyForcedTree(validated!, 'select', projection.forcedSelectTree)
       }
 
       if (Object.keys(projection.forcedIncludeCountWhere).length > 0) {
-        const ic = validated.include as Record<string, unknown> | undefined
+        const ic = validated!.include as Record<string, unknown> | undefined
         if (ic) applyForcedCountWhere(ic, projection.forcedIncludeCountWhere)
       }
 
       if (Object.keys(projection.forcedSelectCountWhere).length > 0) {
-        const sc = validated.select as Record<string, unknown> | undefined
+        const sc = validated!.select as Record<string, unknown> | undefined
         if (sc) applyForcedCountWhere(sc, projection.forcedSelectCountWhere)
       }
 
-      return validated
+      return validated!
     }
 
     function buildWhereFromShape(
@@ -765,6 +770,7 @@ export function createModelGuardExtension(config: {
       const supportsProjection = PROJECTION_MUTATION_METHODS.has(method)
       const allowedBodyKeys = getAllowedBodyKeys(method, supportsProjection)
       const allowedShapeKeys = getAllowedShapeKeys(method, supportsProjection)
+      const allowRelationWrites = RELATION_WRITE_CREATE_METHODS.has(method)
 
       return (body: unknown) => {
         const caller = resolveCaller()
@@ -798,6 +804,7 @@ export function createModelGuardExtension(config: {
           resolved.shape.data,
           resolved.matchedKey,
           resolved.wasDynamic,
+          allowRelationWrites,
         )
 
         let args: Record<string, unknown>
@@ -857,6 +864,7 @@ export function createModelGuardExtension(config: {
       const supportsProjection = PROJECTION_MUTATION_METHODS.has(method)
       const allowedBodyKeys = getAllowedBodyKeys(method, supportsProjection)
       const allowedShapeKeys = getAllowedShapeKeys(method, supportsProjection)
+      const allowRelationWrites = RELATION_WRITE_UPDATE_METHODS.has(method)
 
       return (body: unknown) => {
         const caller = resolveCaller()
@@ -886,6 +894,7 @@ export function createModelGuardExtension(config: {
           resolved.shape.data,
           resolved.matchedKey,
           resolved.wasDynamic,
+          allowRelationWrites,
         )
 
         const data = validateAndMergeData(
@@ -1098,6 +1107,7 @@ export function createModelGuardExtension(config: {
           resolved.shape.create,
           `upsert:create\0${resolved.matchedKey}`,
           resolved.wasDynamic,
+          true,
         )
 
         const createData = validateAndMergeData(
@@ -1112,6 +1122,7 @@ export function createModelGuardExtension(config: {
           resolved.shape.update,
           `upsert:update\0${resolved.matchedKey}`,
           resolved.wasDynamic,
+          true,
         )
 
         const updateData = validateAndMergeData(

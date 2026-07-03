@@ -155,3 +155,20 @@ export function emitZodChains(
     defaults,
   }
 }
+
+export function emitZodDefaults(defaults: Record<string, string[]>): string {
+  const entries = Object.entries(defaults)
+
+  if (entries.length === 0) {
+    return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {}\n`
+  }
+
+  const mapEntries = entries
+    .map(([model, fields]) => {
+      const fieldsStr = fields.map((field) => JSON.stringify(field)).join(', ')
+      return `  ${JSON.stringify(model)}: [${fieldsStr}],`
+    })
+    .join('\n')
+
+  return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {\n${mapEntries}\n}\n`
+}

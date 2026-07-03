@@ -8,7 +8,8 @@ import { emitClient } from './emit-client.js'
 import { emitScopeMap } from './emit-scope-map.js'
 import { emitTypeMap } from './emit-type-map.js'
 import { emitTypedShapes } from './emit-typed-shapes.js'
-import { emitZodChains } from './emit-zod-chains.js'
+import { emitZodChains, emitZodDefaults } from './emit-zod-chains.js'
+import { emitGuardConfig } from './emit-guard-config.js'
 import {
   resolveImportStyle,
   type PrismaClientKind,
@@ -53,23 +54,6 @@ function parseGeneratorConfig(raw: Record<string, unknown>): ResolvedConfig {
     .join('; ')
 
   throw new Error(`prisma-guard: Invalid generator config: ${issues}`)
-}
-
-function emitZodDefaults(defaults: Record<string, string[]>): string {
-  const entries = Object.entries(defaults)
-
-  if (entries.length === 0) {
-    return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {}\n`
-  }
-
-  const mapEntries = entries
-    .map(([model, fields]) => {
-      const fieldsStr = fields.map((field) => JSON.stringify(field)).join(', ')
-      return `  ${JSON.stringify(model)}: [${fieldsStr}],`
-    })
-    .join('\n')
-
-  return `export const ZOD_DEFAULTS: Record<string, readonly string[]> = {\n${mapEntries}\n}\n`
 }
 
 function getProviderValue(provider: unknown): string {
@@ -155,13 +139,13 @@ generatorHandler({
     const parts: string[] = []
 
     parts.push(
-      `export const GUARD_CONFIG = {\n` +
-        `  onMissingScopeContext: ${JSON.stringify(cfg.onMissingScopeContext)},\n` +
-        `  findUniqueMode: ${JSON.stringify(cfg.findUniqueMode)},\n` +
-        `  onScopeRelationWrite: ${JSON.stringify(cfg.onScopeRelationWrite)},\n` +
-        `  strictDecimal: ${JSON.stringify(cfg.strictDecimal)},\n` +
-        `  enforceProjection: ${JSON.stringify(cfg.enforceProjection)},\n` +
-        `} as const\n`,
+      emitGuardConfig({
+        onMissingScopeContext: cfg.onMissingScopeContext,
+        findUniqueMode: cfg.findUniqueMode,
+        onScopeRelationWrite: cfg.onScopeRelationWrite,
+        strictDecimal: cfg.strictDecimal,
+        enforceProjection: cfg.enforceProjection,
+      }),
     )
 
     const { source: scopeSource } = emitScopeMap(dmmf, cfg.onAmbiguousScope)

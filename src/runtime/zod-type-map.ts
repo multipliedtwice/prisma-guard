@@ -78,35 +78,11 @@ const JSON_ARRAY_OPERATORS = new Set([
 
 export { NUMERIC_TYPES, COMPARABLE_TYPES }
 
-export function getSupportedOperators(fieldMeta: FieldMeta): string[]
-export function getSupportedOperators(
-  fieldType: string,
-  isList?: boolean,
-  isEnum?: boolean,
-): string[]
-export function getSupportedOperators(
-  input: FieldMeta | string,
-  isList = false,
-  isEnum = false,
-): string[] {
-  let fieldType: string
-  let list: boolean
-  let enumField: boolean
+export function getSupportedOperators(fieldMeta: FieldMeta): string[] {
+  if (fieldMeta.isList) return [...SCALAR_LIST_OPERATORS]
+  if (fieldMeta.isEnum === true) return [...ENUM_OPERATORS]
 
-  if (typeof input === 'string') {
-    fieldType = input
-    list = isList
-    enumField = isEnum
-  } else {
-    fieldType = input.type
-    list = input.isList
-    enumField = input.isEnum === true
-  }
-
-  if (list) return [...SCALAR_LIST_OPERATORS]
-  if (enumField) return [...ENUM_OPERATORS]
-
-  const ops = SCALAR_OPERATORS[fieldType]
+  const ops = SCALAR_OPERATORS[fieldMeta.type]
   if (!ops) return []
 
   return [...ops]

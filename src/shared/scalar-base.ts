@@ -96,7 +96,7 @@ export function createScalarBase(strictDecimal: boolean): ScalarBaseMap {
   return {
     String: () => z.string(),
     Int: () => z.number().int(),
-    Float: () => z.number(),
+    Float: () => z.number().finite(),
     Decimal: createDecimalFactory(strictDecimal),
     BigInt: () =>
       z.union([

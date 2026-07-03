@@ -424,10 +424,7 @@ export function createArgsBuilder(
         )
       }
 
-      const allowedOps = getSupportedOperators(
-        fieldMeta.type,
-        fieldMeta.isList,
-      )
+      const allowedOps = getSupportedOperators(fieldMeta)
       const opSchemas: Record<string, z.ZodTypeAny> = {}
 
       for (const op of allowedOps) {

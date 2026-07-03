@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { coerceToArray, isPlainObject } from './utils.js'
 import { ShapeError } from './errors.js'
+import { NestedArgs } from './types.js'
 
 export function strictObjectRequiringOne(
   shape: Record<string, z.ZodTypeAny>,
@@ -67,10 +68,22 @@ export function requireConfigTrue(
 
 export function requirePlainObjectConfig(
   value: unknown,
-  context: string,
+  message: string,
 ): Record<string, unknown> {
   if (!isPlainObject(value)) {
-    throw new ShapeError(`${context} must be a plain object`)
+    throw new ShapeError(message)
   }
   return value as Record<string, unknown>
+}
+
+export function assertAllowedKeys(
+  value: Record<string, unknown> | NestedArgs,
+  allowed: Set<string>,
+  makeError: (key: string) => string,
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new ShapeError(makeError(key))
+    }
+  }
 }

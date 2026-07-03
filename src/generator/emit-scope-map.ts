@@ -2,7 +2,7 @@ import type { DMMF } from '@prisma/generator-helper'
 
 function isScopeRoot(documentation: string | undefined): boolean {
   if (!documentation) return false
-  const tokens = documentation.split(/[\s\n\r]+/)
+  const tokens = documentation.split(/\s+/)
   return tokens.some(t => t === '@scope-root')
 }
 
@@ -21,14 +21,6 @@ function reportScopeIssue(
 ): void {
   if (mode === 'error') throw new Error(`prisma-guard: ${errorMsg}`)
   if (mode === 'warn') console.warn(`prisma-guard: ${warnMsg}`)
-}
-
-function serializeScopeEntry(e: {
-  fk: string
-  root: string
-  relationName: string
-}): string {
-  return `{ fk: ${JSON.stringify(e.fk)}, root: ${JSON.stringify(e.root)}, relationName: ${JSON.stringify(e.relationName)} }`
 }
 
 export function emitScopeMap(
@@ -112,7 +104,7 @@ export function emitScopeMap(
 
   const mapEntries = Object.entries(scopeMap)
     .map(([model, entries]) => {
-      const entriesStr = entries.map(serializeScopeEntry).join(', ')
+      const entriesStr = entries.map(e => JSON.stringify(e)).join(', ')
       return `  ${model}: [${entriesStr}],`
     })
     .join('\n')

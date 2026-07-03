@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { inspect } from 'node:util'
 import type {
   TypeMap,
   EnumMap,
@@ -48,33 +49,8 @@ export interface UniqueWhereBuiltResult {
   forcedOnlyKeys: Set<string>
 }
 
-function safeStringify(value: unknown): string {
-  if (typeof value === 'bigint') return `${value}n`
-  if (typeof value === 'undefined') return 'undefined'
-  if (typeof value === 'function') return '[function]'
-  if (typeof value === 'symbol') return value.toString()
-
-  const seen = new WeakSet<object>()
-
-  try {
-    const json = JSON.stringify(value, (_key, current) => {
-      if (typeof current === 'bigint') return `${current}n`
-      if (typeof current === 'undefined') return '[undefined]'
-      if (typeof current === 'function') return '[function]'
-      if (typeof current === 'symbol') return current.toString()
-
-      if (current && typeof current === 'object') {
-        if (seen.has(current)) return '[Circular]'
-        seen.add(current)
-      }
-
-      return current
-    })
-
-    return json === undefined ? String(value) : json
-  } catch {
-    return String(value)
-  }
+function formatValue(value: unknown): string {
+  return inspect(value, { depth: 3, breakLength: Infinity })
 }
 
 function mergeScalarConditions(
@@ -103,7 +79,7 @@ function mergeScalarConditions(
           if (!deepEqual(existingVal, val)) {
             throw new ShapeError(
               `Conflicting forced where values for "${field}.${op}": ` +
-                `shape defines both ${safeStringify(existingVal)} and ${safeStringify(val)}`,
+                `shape defines both ${formatValue(existingVal)} and ${formatValue(val)}`,
             )
           }
         }

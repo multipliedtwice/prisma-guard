@@ -14,15 +14,16 @@ function emitGuardModelExtension(dmmf: DMMF.Document): string {
   const entries = dmmf.datamodel.models
     .map((model) => {
       const key = delegateKey(model.name)
-      return (
-        `  ${key}: {\n` +
-        `    guard(input: GuardInput, caller?: string): GuardedModel<PrismaClient['${key}']>\n` +
-        `  }`
-      )
+      return `  ${key}: {
+    guard(input: GuardInput, caller?: string): GuardedModel<PrismaClient['${key}']>
+  }`
     })
     .join('\n')
 
-  return `interface GuardModelExtension {\n${entries}\n}\n`
+  return `interface GuardModelExtension {
+${entries}
+}
+`
 }
 
 export function emitClient(
@@ -39,22 +40,21 @@ export function emitClient(
     prismaClientKind,
   )
 
-  return (
-    `import type { PrismaClient } from '${clientImport}'\n` +
-    `import type { GuardInput, GuardedModel } from '${runtimeImportPath}'\n` +
-    `import { createGuard } from '${runtimeImportPath}'\n` +
-    `import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from '${indexImport}'\n` +
-    `import type { ScopeRoot } from '${indexImport}'\n\n` +
-    emitGuardModelExtension(dmmf) +
-    `\n` +
-    `export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({\n` +
-    `  scopeMap: SCOPE_MAP,\n` +
-    `  typeMap: TYPE_MAP,\n` +
-    `  enumMap: ENUM_MAP,\n` +
-    `  zodChains: ZOD_CHAINS,\n` +
-    `  guardConfig: GUARD_CONFIG,\n` +
-    `  uniqueMap: UNIQUE_MAP,\n` +
-    `  zodDefaults: ZOD_DEFAULTS,\n` +
-    `})\n`
-  )
+  return `import type { PrismaClient } from '${clientImport}'
+import type { GuardInput, GuardedModel } from '${runtimeImportPath}'
+import { createGuard } from '${runtimeImportPath}'
+import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from '${indexImport}'
+import type { ScopeRoot } from '${indexImport}'
+
+${emitGuardModelExtension(dmmf)}
+export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({
+  scopeMap: SCOPE_MAP,
+  typeMap: TYPE_MAP,
+  enumMap: ENUM_MAP,
+  zodChains: ZOD_CHAINS,
+  guardConfig: GUARD_CONFIG,
+  uniqueMap: UNIQUE_MAP,
+  zodDefaults: ZOD_DEFAULTS,
+})
+`
 }

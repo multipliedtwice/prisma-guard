@@ -12,13 +12,32 @@ import { buildRelationArgsSkeleton } from '../shared/projection-defaults.js'
 import type { WhereForced, ForcedTree } from './query-builder-forced.js'
 import { hasWhereForced } from './query-builder-forced.js'
 import type { WhereBuiltResult } from './query-builder-where.js'
-import { strictObjectRequiringOne } from '../shared/zod-helpers.js'
+import {
+  strictObjectRequiringOne,
+  assertAllowedKeys,
+} from '../shared/zod-helpers.js'
 
 type ProjectionMode = 'include' | 'select'
 
 const KNOWN_NESTED_KEYS: Record<ProjectionMode, Set<string>> = {
-  include: new Set(['where', 'include', 'select', 'orderBy', 'cursor', 'take', 'skip']),
-  select: new Set(['select', 'include', 'where', 'orderBy', 'cursor', 'take', 'skip']),
+  include: new Set([
+    'where',
+    'include',
+    'select',
+    'orderBy',
+    'cursor',
+    'take',
+    'skip',
+  ]),
+  select: new Set([
+    'select',
+    'include',
+    'where',
+    'orderBy',
+    'cursor',
+    'take',
+    'skip',
+  ]),
 }
 
 const KNOWN_COUNT_SELECT_ENTRY_KEYS = new Set(['where'])
@@ -34,24 +53,21 @@ export type BuiltIncludeResult = BuiltProjectionResult
 export type BuiltSelectResult = BuiltProjectionResult
 
 interface ProjectionDeps {
-  buildWhereSchema(model: string, config: Record<string, unknown>): WhereBuiltResult
-  buildOrderBySchema(model: string, config: Record<string, OrderByFieldConfig>): z.ZodTypeAny
-  buildCursorSchema(model: string, config: Record<string, unknown>): z.ZodTypeAny
-  buildTakeSchema(config: number | { max: number; default?: number }): z.ZodTypeAny
-}
-
-function validateNestedKeys(
-  keys: Iterable<string>,
-  allowed: Set<string>,
-  context: string,
-): void {
-  for (const key of keys) {
-    if (!allowed.has(key)) {
-      throw new ShapeError(
-        `Unknown key "${key}" in ${context}. Allowed: ${[...allowed].join(', ')}`,
-      )
-    }
-  }
+  buildWhereSchema(
+    model: string,
+    config: Record<string, unknown>,
+  ): WhereBuiltResult
+  buildOrderBySchema(
+    model: string,
+    config: Record<string, OrderByFieldConfig>,
+  ): z.ZodTypeAny
+  buildCursorSchema(
+    model: string,
+    config: Record<string, unknown>,
+  ): z.ZodTypeAny
+  buildTakeSchema(
+    config: number | { max: number; default?: number },
+  ): z.ZodTypeAny
 }
 
 function hasDefinedKeys(v: Record<string, unknown>): boolean {
@@ -72,6 +88,29 @@ function wrapRelationSchema(
   )
 }
 
+function buildRelationWhere(
+  relatedType: string,
+  whereConfig: Record<string, unknown>,
+  context: string,
+  buildWhereSchema: ProjectionDeps['buildWhereSchema'],
+): { schema: z.ZodTypeAny | null; forced: WhereForced } {
+  if (Object.keys(whereConfig).length === 0) {
+    throw new ShapeError(
+      `Empty "where" in ${context}. Define at least one field.`,
+    )
+  }
+
+  const { schema, forced } = buildWhereSchema(relatedType, whereConfig)
+
+  if (!schema && !hasWhereForced(forced)) {
+    throw new ShapeError(
+      `"where" in ${context} produced no schema and no forced conditions. Define at least one field.`,
+    )
+  }
+
+  return { schema, forced }
+}
+
 export function createProjectionBuilder(
   typeMap: TypeMap,
   _enumMap: EnumMap,
@@ -80,7 +119,10 @@ export function createProjectionBuilder(
   function buildIncludeCountSchema(
     model: string,
     config: true | Record<string, unknown>,
-  ): { schema: z.ZodTypeAny; forcedCountWhere: Record<string, WhereForced> } {
+  ): {
+    schema: z.ZodTypeAny
+    forcedCountWhere: Record<string, WhereForced>
+  } {
     const modelFields = typeMap[model]
     if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
 
@@ -94,13 +136,12 @@ export function createProjectionBuilder(
       )
     }
 
-    for (const key of Object.keys(config)) {
-      if (key !== 'select') {
-        throw new ShapeError(
-          `Unknown key "${key}" in _count config on model "${model}". Only "select" is allowed.`,
-        )
-      }
-    }
+    assertAllowedKeys(
+      config,
+      new Set(['select']),
+      (key) =>
+        `Unknown key "${key}" in _count config on model "${model}". Only "select" is allowed.`,
+    )
 
     if (!isPlainObject(config.select)) {
       throw new ShapeError(
@@ -108,7 +149,10 @@ export function createProjectionBuilder(
       )
     }
 
-    const selectObj = config.select as Record<string, true | Record<string, unknown>>
+    const selectObj = config.select as Record<
+      string,
+      true | Record<string, unknown>
+    >
 
     if (Object.keys(selectObj).length === 0) {
       throw new ShapeError(
@@ -121,9 +165,18 @@ export function createProjectionBuilder(
 
     for (const [fieldName, fieldConfig] of Object.entries(selectObj)) {
       const fieldMeta = modelFields[fieldName]
-      if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}" in _count.select`)
-      if (!fieldMeta.isRelation) throw new ShapeError(`Field "${fieldName}" is not a relation on model "${model}" in _count.select`)
-      if (!fieldMeta.isList) throw new ShapeError(`Field "${fieldName}" is a to-one relation on model "${model}" in _count.select. Only to-many relations support _count.`)
+      if (!fieldMeta)
+        throw new ShapeError(
+          `Unknown field "${fieldName}" on model "${model}" in _count.select`,
+        )
+      if (!fieldMeta.isRelation)
+        throw new ShapeError(
+          `Field "${fieldName}" is not a relation on model "${model}" in _count.select`,
+        )
+      if (!fieldMeta.isList)
+        throw new ShapeError(
+          `Field "${fieldName}" is a to-one relation on model "${model}" in _count.select. Only to-many relations support _count.`,
+        )
 
       if (fieldConfig === true) {
         countSelectFields[fieldName] = z.literal(true).optional()
@@ -142,22 +195,27 @@ export function createProjectionBuilder(
         )
       }
 
-      validateNestedKeys(
-        Object.keys(fieldConfig),
+      assertAllowedKeys(
+        fieldConfig,
         KNOWN_COUNT_SELECT_ENTRY_KEYS,
-        `_count.select.${fieldName} on model "${model}"`,
+        (key) =>
+          `Unknown key "${key}" in _count.select.${fieldName} on model "${model}". Allowed: ${[...KNOWN_COUNT_SELECT_ENTRY_KEYS].join(', ')}`,
       )
 
       if (fieldConfig.where) {
         const relatedType = fieldMeta.type
-        const { schema: whereSchema, forced } = deps.buildWhereSchema(
+        const { schema: whereSchema, forced } = buildRelationWhere(
           relatedType,
           fieldConfig.where as Record<string, unknown>,
+          `_count.select.${fieldName} on model "${model}"`,
+          deps.buildWhereSchema,
         )
         const nestedSchemas: Record<string, z.ZodTypeAny> = {}
         if (whereSchema) nestedSchemas['where'] = whereSchema
         const nestedObj = z.object(nestedSchemas).strict()
-        countSelectFields[fieldName] = z.union([z.literal(true), nestedObj]).optional()
+        countSelectFields[fieldName] = z
+          .union([z.literal(true), nestedObj])
+          .optional()
 
         if (hasWhereForced(forced)) {
           forcedCountWhere[fieldName] = forced
@@ -182,23 +240,35 @@ export function createProjectionBuilder(
     relatedType: string,
     config: NestedArgs,
     depth: number,
-  ): { nestedSchemas: Record<string, z.ZodTypeAny>; relForced: ForcedTree } {
+    context: string,
+  ): {
+    nestedSchemas: Record<string, z.ZodTypeAny>
+    relForced: ForcedTree
+  } {
     const nestedSchemas: Record<string, z.ZodTypeAny> = {}
     const relForced: ForcedTree = {}
 
     if (config.where) {
-      const { schema: whereSchema, forced } = deps.buildWhereSchema(
+      const { schema: whereSchema, forced } = buildRelationWhere(
         relatedType,
         config.where as Record<string, unknown>,
+        context,
+        deps.buildWhereSchema,
       )
       if (whereSchema) nestedSchemas['where'] = whereSchema
       if (hasWhereForced(forced)) relForced.where = forced
     }
 
     if (config.include) {
-      const nested = buildProjectionSchema('include', relatedType, config.include, depth + 1)
+      const nested = buildProjectionSchema(
+        'include',
+        relatedType,
+        config.include,
+        depth + 1,
+      )
       nestedSchemas['include'] = nested.schema
-      if (Object.keys(nested.forcedTree).length > 0) relForced.include = nested.forcedTree
+      if (Object.keys(nested.forcedTree).length > 0)
+        relForced.include = nested.forcedTree
       if (Object.keys(nested.forcedCountWhere).length > 0) {
         relForced._countWhere = nested.forcedCountWhere
         relForced._countWherePlacement = 'include'
@@ -206,9 +276,15 @@ export function createProjectionBuilder(
     }
 
     if (config.select) {
-      const nested = buildProjectionSchema('select', relatedType, config.select, depth + 1)
+      const nested = buildProjectionSchema(
+        'select',
+        relatedType,
+        config.select,
+        depth + 1,
+      )
       nestedSchemas['select'] = nested.schema
-      if (Object.keys(nested.forcedTree).length > 0) relForced.select = nested.forcedTree
+      if (Object.keys(nested.forcedTree).length > 0)
+        relForced.select = nested.forcedTree
       if (Object.keys(nested.forcedCountWhere).length > 0) {
         relForced._countWhere = nested.forcedCountWhere
         relForced._countWherePlacement = 'select'
@@ -216,15 +292,29 @@ export function createProjectionBuilder(
     }
 
     if (config.orderBy) {
-      nestedSchemas['orderBy'] = deps.buildOrderBySchema(relatedType, config.orderBy)
+      nestedSchemas['orderBy'] = deps.buildOrderBySchema(
+        relatedType,
+        config.orderBy,
+      )
     }
+
     if (config.cursor) {
-      nestedSchemas['cursor'] = deps.buildCursorSchema(relatedType, config.cursor)
+      nestedSchemas['cursor'] = deps.buildCursorSchema(
+        relatedType,
+        config.cursor,
+      )
     }
-    if (config.take) {
+
+    if ('take' in config && config.take !== undefined) {
       nestedSchemas['take'] = deps.buildTakeSchema(config.take)
     }
-    if (config.skip) {
+
+    if ('skip' in config && config.skip !== undefined) {
+      if (config.skip !== true) {
+        throw new ShapeError(
+          `Nested "skip" in ${context} must be true`,
+        )
+      }
       nestedSchemas['skip'] = z.number().int().min(0).optional()
     }
 
@@ -260,17 +350,25 @@ export function createProjectionBuilder(
 
     for (const [fieldName, config] of Object.entries(projectionConfig)) {
       if (fieldName === '_count') {
-        const countResult = buildIncludeCountSchema(model, config as true | Record<string, unknown>)
+        const countResult = buildIncludeCountSchema(
+          model,
+          config as true | Record<string, unknown>,
+        )
         fieldSchemas['_count'] = countResult.schema
         topLevelForcedCountWhere = countResult.forcedCountWhere
         continue
       }
 
       const fieldMeta = modelFields[fieldName]
-      if (!fieldMeta) throw new ShapeError(`Unknown field "${fieldName}" on model "${model}"`)
+      if (!fieldMeta)
+        throw new ShapeError(
+          `Unknown field "${fieldName}" on model "${model}"`,
+        )
 
       if (mode === 'include' && !fieldMeta.isRelation) {
-        throw new ShapeError(`Field "${fieldName}" is not a relation on model "${model}"`)
+        throw new ShapeError(
+          `Field "${fieldName}" is not a relation on model "${model}"`,
+        )
       }
 
       if (config === true) {
@@ -279,25 +377,46 @@ export function createProjectionBuilder(
       }
 
       if (mode === 'select' && !fieldMeta.isRelation) {
-        throw new ShapeError(`Nested select args only valid for relations, not scalar "${fieldName}" on model "${model}"`)
+        throw new ShapeError(
+          `Nested select args only valid for relations, not scalar "${fieldName}" on model "${model}"`,
+        )
       }
 
       const contextLabel = `nested ${mode} for "${fieldName}" on model "${model}"`
-      validateNestedKeys(Object.keys(config), allowedNestedKeys, contextLabel)
+
+      assertAllowedKeys(
+        config,
+        allowedNestedKeys,
+        (key) =>
+          `Unknown key "${key}" in ${contextLabel}. Allowed: ${[...allowedNestedKeys].join(', ')}`,
+      )
 
       if (config.select && config.include) {
-        throw new ShapeError(`Nested ${mode} for "${fieldName}" cannot define both "select" and "include".`)
+        throw new ShapeError(
+          `Nested ${mode} for "${fieldName}" cannot define both "select" and "include".`,
+        )
       }
 
       if (!fieldMeta.isList) {
-        if (config.where || config.orderBy || config.cursor || config.take || config.skip) {
+        if (
+          config.where ||
+          config.orderBy ||
+          config.cursor ||
+          config.take ||
+          config.skip
+        ) {
           throw new ShapeError(
             `Relation "${fieldName}" on model "${model}" is to-one. Only "select" and "include" are supported for to-one nested reads, not where/orderBy/cursor/take/skip.`,
           )
         }
       }
 
-      const { nestedSchemas, relForced } = buildNestedRelSchemas(fieldMeta.type, config, currentDepth)
+      const { nestedSchemas, relForced } = buildNestedRelSchemas(
+        fieldMeta.type,
+        config,
+        currentDepth,
+        contextLabel,
+      )
       const nestedObj = z.object(nestedSchemas).strict()
 
       fieldSchemas[fieldName] = wrapRelationSchema(
@@ -305,7 +424,8 @@ export function createProjectionBuilder(
         buildRelationArgsSkeleton(config),
       ).optional()
 
-      if (Object.keys(relForced).length > 0) forcedTree[fieldName] = relForced
+      if (Object.keys(relForced).length > 0)
+        forcedTree[fieldName] = relForced
     }
 
     const schema =
@@ -339,5 +459,10 @@ export function createProjectionBuilder(
     return buildProjectionSchema('select', model, selectConfig, depth)
   }
 
-  return { buildIncludeSchema, buildSelectSchema, buildIncludeCountSchema, buildProjectionSchema }
+  return {
+    buildIncludeSchema,
+    buildSelectSchema,
+    buildIncludeCountSchema,
+    buildProjectionSchema,
+  }
 }

@@ -938,6 +938,15 @@ Reads: `findMany`, `findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrT
 
 Writes: `create`, `createMany`, `createManyAndReturn`, `update`, `updateMany`, `updateManyAndReturn`, `upsert`, `delete`, `deleteMany`
 
+### `findManyPaginated`
+
+`findManyPaginated` is an intentional operation shape used by the integrated
+`prisma-generator-express` stack.
+
+It is not expected to map 1:1 to a native Prisma Client method. It exists so
+guard shapes can be generated for the paginated route/helper layer.
+
+
 ---
 
 ## Relation writes in data shapes

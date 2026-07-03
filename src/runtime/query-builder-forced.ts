@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { UniqueMap } from '../shared/types.js'
 import { isPlainObject } from '../shared/utils.js'
 import { deepClone } from '../shared/deep-clone.js'
-import { formatZodError, ShapeError } from '../shared/errors.js'
+import { ShapeError, wrapParseError } from '../shared/errors.js'
 import { isForcedValue } from '../shared/constants.js'
 import { deepEqual } from '../shared/deep-equal.js'
 import {
@@ -301,52 +301,43 @@ export function applyBuiltShape(
   try {
     validated = built.zodSchema.parse(parseable) as Record<string, unknown>
   } catch (err) {
-    if (err instanceof ShapeError) throw err
-
-    if (err && typeof err === 'object' && 'issues' in err) {
-      const context = modelName
-        ? `Invalid query on model "${modelName}"`
-        : 'Invalid query'
-
-      throw new ShapeError(`${context}: ${formatZodError(err as any)}`, {
-        cause: err,
-      })
-    }
-
-    throw err
+    wrapParseError(
+      err,
+      modelName ? `Invalid query on model "${modelName}"` : 'Invalid query',
+    )
   }
 
   if (hasWhereForced(built.forcedWhere)) {
-    validated.where = isUniqueMethod
+    validated!.where = isUniqueMethod
       ? mergeUniqueWhereForced(
-          validated.where as Record<string, unknown> | undefined,
+          validated!.where as Record<string, unknown> | undefined,
           built.forcedWhere,
         )
       : mergeWhereForced(
-          validated.where as Record<string, unknown> | undefined,
+          validated!.where as Record<string, unknown> | undefined,
           built.forcedWhere,
         )
   }
 
   if (Object.keys(built.forcedIncludeTree).length > 0) {
-    applyForcedTree(validated, 'include', built.forcedIncludeTree)
+    applyForcedTree(validated!, 'include', built.forcedIncludeTree)
   }
 
   if (Object.keys(built.forcedSelectTree).length > 0) {
-    applyForcedTree(validated, 'select', built.forcedSelectTree)
+    applyForcedTree(validated!, 'select', built.forcedSelectTree)
   }
 
   if (Object.keys(built.forcedIncludeCountWhere).length > 0) {
-    const ic = validated.include as Record<string, unknown> | undefined
+    const ic = validated!.include as Record<string, unknown> | undefined
     if (ic) applyForcedCountWhere(ic, built.forcedIncludeCountWhere)
   }
 
   if (Object.keys(built.forcedSelectCountWhere).length > 0) {
-    const sc = validated.select as Record<string, unknown> | undefined
+    const sc = validated!.select as Record<string, unknown> | undefined
     if (sc) applyForcedCountWhere(sc, built.forcedSelectCountWhere)
   }
 
-  return validated
+  return validated!
 }
 
 function buildCountForPlacement(
@@ -359,16 +350,6 @@ function buildCountForPlacement(
   }
 
   return { _count: { select: countSelect } }
-}
-
-interface ForcedTreeVisitor {
-  mode: 'apply' | 'build'
-  getBase(): Record<string, unknown> | undefined
-  onRelation(
-    relName: string,
-    forced: ForcedTree,
-    base: Record<string, unknown>,
-  ): void
 }
 
 function collectSubtree(

@@ -6,7 +6,7 @@ import type {
   UniqueMap,
   EnumMap,
 } from '../shared/types.js'
-import { ShapeError, formatZodError } from '../shared/errors.js'
+import { ShapeError, wrapParseError } from '../shared/errors.js'
 import { isForcedValue, isUnsupportedMarker } from '../shared/constants.js'
 import { deepClone } from '../shared/deep-clone.js'
 import {
@@ -21,7 +21,11 @@ import {
 } from '../shared/utils.js'
 import { buildUniqueSelectorSchema } from './unique-selector-schema.js'
 import type { ScalarBaseMap } from '../shared/scalar-base.js'
-import { wrapRelationOp } from '../shared/zod-helpers.js'
+import {
+  wrapRelationOp,
+  assertAllowedKeys,
+  requirePlainObjectConfig,
+} from '../shared/zod-helpers.js'
 
 export interface BuiltDataSchema {
   schema: z.ZodObject<any>
@@ -62,13 +66,12 @@ function validateRelationOpKeys(
   const allowed = RELATION_OP_ALLOWED_KEYS[opKey]
   if (!allowed) return
 
-  for (const key of Object.keys(actual)) {
-    if (!allowed.has(key)) {
-      throw new ShapeError(
-        `Unknown key "${key}" in ${opLabel} config on "${model}.${field}". Allowed: ${[...allowed].join(', ')}`,
-      )
-    }
-  }
+  assertAllowedKeys(
+    actual,
+    allowed,
+    (key) =>
+      `Unknown key "${key}" in ${opLabel} config on "${model}.${field}". Allowed: ${[...allowed].join(', ')}`,
+  )
 }
 
 export function validateAllowedKeys(
@@ -77,18 +80,12 @@ export function validateAllowedKeys(
   method: string,
   kind: 'body' | 'shape',
 ): void {
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) {
-      if (kind === 'body') {
-        throw new ShapeError(
-          `Unexpected key "${key}" in ${method} body. Allowed keys: ${[...allowed].join(', ')}`,
-        )
-      }
-      throw new ShapeError(
-        `Shape key "${key}" not valid for ${method}. Allowed: ${[...allowed].join(', ')}`,
-      )
+  assertAllowedKeys(value, allowed, (key) => {
+    if (kind === 'body') {
+      return `Unexpected key "${key}" in ${method} body. Allowed keys: ${[...allowed].join(', ')}`
     }
-  }
+    return `Shape key "${key}" not valid for ${method}. Allowed: ${[...allowed].join(', ')}`
+  })
 }
 
 export function validateCreateCompleteness(
@@ -201,25 +198,15 @@ function buildNestedDataSchema(
   return z.object(fieldSchemas).strict()
 }
 
-function requirePlainObjectConfig(
-  value: unknown,
-  message: string,
-): Record<string, unknown> {
-  if (!isPlainObject(value)) throw new ShapeError(message)
-  return value as Record<string, unknown>
-}
-
 function requireNestedObject(
   cfg: Record<string, unknown>,
   key: string,
   message: string,
 ): Record<string, unknown> {
-  const v = cfg[key]
-  if (!v || !isPlainObject(v)) throw new ShapeError(message)
-  return v as Record<string, unknown>
+  return requirePlainObjectConfig(cfg[key], message)
 }
 
-function buildUniqueSelector(
+function buildRelatedUniqueSelector(
   ctx: RelationOpContext,
   cfg: Record<string, unknown>,
   context: string,
@@ -237,7 +224,7 @@ function buildUniqueSelector(
   )
 }
 
-function buildNestedData(
+function buildRelatedNestedData(
   ctx: RelationOpContext,
   cfg: Record<string, true>,
   mode: 'create' | 'update',
@@ -256,7 +243,7 @@ const handleConnect: RelationOpHandler = (ctx) => {
     ctx.config,
     `connect config on "${ctx.model}.${ctx.fieldName}" must be an object of unique selectors`,
   )
-  const schema = buildUniqueSelector(ctx, cfg, 'connect')
+  const schema = buildRelatedUniqueSelector(ctx, cfg, 'connect')
   return wrapRelationOp(ctx.isList, schema)
 }
 
@@ -279,8 +266,8 @@ const handleConnectOrCreate: RelationOpHandler = (ctx) => {
     `connectOrCreate on "${ctx.model}.${ctx.fieldName}" requires "create" object`,
   )
 
-  const whereSchema = buildUniqueSelector(ctx, where, 'connectOrCreate.where')
-  const createSchema = buildNestedData(ctx, create as Record<string, true>, 'create')
+  const whereSchema = buildRelatedUniqueSelector(ctx, where, 'connectOrCreate.where')
+  const createSchema = buildRelatedNestedData(ctx, create as Record<string, true>, 'create')
 
   const cocSchema = z.object({ where: whereSchema, create: createSchema }).strict()
   return wrapRelationOp(ctx.isList, cocSchema)
@@ -291,7 +278,7 @@ const handleCreate: RelationOpHandler = (ctx) => {
     ctx.config,
     `create config on "${ctx.model}.${ctx.fieldName}" must be an object of field names`,
   )
-  const createSchema = buildNestedData(ctx, cfg as Record<string, true>, 'create')
+  const createSchema = buildRelatedNestedData(ctx, cfg as Record<string, true>, 'create')
   return wrapRelationOp(ctx.isList, createSchema)
 }
 
@@ -315,7 +302,7 @@ const handleCreateMany: RelationOpHandler = (ctx) => {
     `createMany on "${ctx.model}.${ctx.fieldName}" requires "data" object`,
   )
 
-  const dataSchema = buildNestedData(ctx, data as Record<string, true>, 'create')
+  const dataSchema = buildRelatedNestedData(ctx, data as Record<string, true>, 'create')
   const cmSchemaFields: Record<string, z.ZodTypeAny> = {
     data: z.preprocess(coerceToArray, z.array(dataSchema)),
   }
@@ -341,7 +328,7 @@ const handleDisconnect: RelationOpHandler = (ctx) => {
     )
   }
 
-  const schema = buildUniqueSelector(ctx, ctx.config as Record<string, unknown>, 'disconnect')
+  const schema = buildRelatedUniqueSelector(ctx, ctx.config as Record<string, unknown>, 'disconnect')
   if (ctx.isList) return wrapRelationOp(true, schema)
   return z.union([z.literal(true), schema]).optional()
 }
@@ -362,7 +349,7 @@ const handleDelete: RelationOpHandler = (ctx) => {
     )
   }
 
-  const schema = buildUniqueSelector(ctx, ctx.config as Record<string, unknown>, 'delete')
+  const schema = buildRelatedUniqueSelector(ctx, ctx.config as Record<string, unknown>, 'delete')
   if (ctx.isList) return wrapRelationOp(true, schema)
   return z.union([z.literal(true), schema]).optional()
 }
@@ -377,7 +364,7 @@ const handleSet: RelationOpHandler = (ctx) => {
     ctx.config,
     `set config on "${ctx.model}.${ctx.fieldName}" must be an object of unique selectors`,
   )
-  const schema = buildUniqueSelector(ctx, cfg, 'set')
+  const schema = buildRelatedUniqueSelector(ctx, cfg, 'set')
   return wrapRelationOp(true, schema)
 }
 
@@ -401,13 +388,13 @@ const handleUpdate: RelationOpHandler = (ctx) => {
       `update on to-many "${ctx.model}.${ctx.fieldName}" requires "data" object`,
     )
 
-    const whereSchema = buildUniqueSelector(ctx, where, 'update.where')
-    const dataSchema = buildNestedData(ctx, data as Record<string, true>, 'update')
+    const whereSchema = buildRelatedUniqueSelector(ctx, where, 'update.where')
+    const dataSchema = buildRelatedNestedData(ctx, data as Record<string, true>, 'update')
     const updateSchema = z.object({ where: whereSchema, data: dataSchema }).strict()
     return wrapRelationOp(true, updateSchema)
   }
 
-  const dataSchema = buildNestedData(ctx, cfg as Record<string, true>, 'update')
+  const dataSchema = buildRelatedNestedData(ctx, cfg as Record<string, true>, 'update')
   return dataSchema.optional()
 }
 
@@ -436,8 +423,8 @@ const handleUpsert: RelationOpHandler = (ctx) => {
     `upsert on "${ctx.model}.${ctx.fieldName}" requires "update" object`,
   )
 
-  const createSchema = buildNestedData(ctx, create as Record<string, true>, 'create')
-  const updateSchema = buildNestedData(ctx, update as Record<string, true>, 'update')
+  const createSchema = buildRelatedNestedData(ctx, create as Record<string, true>, 'create')
+  const updateSchema = buildRelatedNestedData(ctx, update as Record<string, true>, 'update')
 
   if (ctx.isList) {
     const where = requireNestedObject(
@@ -445,7 +432,7 @@ const handleUpsert: RelationOpHandler = (ctx) => {
       'where',
       `upsert on to-many "${ctx.model}.${ctx.fieldName}" requires "where" object`,
     )
-    const whereSchema = buildUniqueSelector(ctx, where, 'upsert.where')
+    const whereSchema = buildRelatedUniqueSelector(ctx, where, 'upsert.where')
     const upsertSchema = z
       .object({ where: whereSchema, create: createSchema, update: updateSchema })
       .strict()
@@ -460,7 +447,7 @@ const handleUpsert: RelationOpHandler = (ctx) => {
         `upsert on to-one "${ctx.model}.${ctx.fieldName}" has invalid "where": must be a plain object of unique selectors`,
       )
     }
-    const whereSchema = buildUniqueSelector(ctx, cfg.where as Record<string, unknown>, 'upsert.where')
+    const whereSchema = buildRelatedUniqueSelector(ctx, cfg.where as Record<string, unknown>, 'upsert.where')
     const upsertSchema = z
       .object({ where: whereSchema, create: createSchema, update: updateSchema })
       .strict()
@@ -514,7 +501,7 @@ const handleUpdateMany: RelationOpHandler = (ctx) => {
     ctx.typeMap,
     ctx.schemaBuilder,
   )
-  const dataSchema = buildNestedData(ctx, data as Record<string, true>, 'update')
+  const dataSchema = buildRelatedNestedData(ctx, data as Record<string, true>, 'update')
   const umSchema = z.object({ where: whereSchema, data: dataSchema }).strict()
   return wrapRelationOp(true, umSchema)
 }
@@ -578,18 +565,26 @@ function buildRelationWriteSchema(
       `Unknown related model "${relatedModelName}" for field "${model}.${fieldName}"`,
     )
 
-  for (const key of Object.keys(config)) {
-    if (!KNOWN_RELATION_WRITE_OPS.has(key)) {
-      throw new ShapeError(
-        `Unknown relation write operation "${key}" on "${model}.${fieldName}". Allowed: ${[...KNOWN_RELATION_WRITE_OPS].join(', ')}`,
-      )
-    }
+  assertAllowedKeys(
+    config,
+    KNOWN_RELATION_WRITE_OPS,
+    (key) =>
+      `Unknown relation write operation "${key}" on "${model}.${fieldName}". Allowed: ${[...KNOWN_RELATION_WRITE_OPS].join(', ')}`,
+  )
+
+  const definedEntries = Object.entries(config).filter(
+    ([, opConfig]) => opConfig !== undefined,
+  )
+
+  if (definedEntries.length === 0) {
+    throw new ShapeError(
+      `Empty relation write config on "${model}.${fieldName}". Define at least one operation: ${[...KNOWN_RELATION_WRITE_OPS].join(', ')}`,
+    )
   }
 
   const opSchemas: Record<string, z.ZodTypeAny> = {}
 
-  for (const [op, opConfig] of Object.entries(config)) {
-    if (opConfig === undefined) continue
+  for (const [op, opConfig] of definedEntries) {
     const handler = RELATION_OP_HANDLERS[op]
     opSchemas[op] = handler({
       model,
@@ -618,6 +613,7 @@ export function buildDataSchema(
   scalarBase: ScalarBaseMap,
   schemaBuilder: ReturnType<typeof createSchemaBuilder>,
   zodDefaults: ZodDefaults,
+  allowRelationWrites: boolean,
 ): BuiltDataSchema {
   const modelFields = typeMap[model]
   if (!modelFields) throw new ShapeError(`Unknown model: ${model}`)
@@ -655,6 +651,11 @@ export function buildDataSchema(
     }
 
     if (fieldMeta.isRelation) {
+      if (!allowRelationWrites) {
+        throw new ShapeError(
+          `Field "${fieldName}" on model "${model}" is a relation. Relation writes are not supported for this method.`,
+        )
+      }
       if (!isPlainObject(value)) {
         throw new ShapeError(
           `Relation field "${fieldName}" on model "${model}" requires a relation write config object`,
@@ -778,18 +779,14 @@ export function validateAndMergeData(
   }
   let validated: Record<string, unknown>
   try {
-    validated = cached.schema.parse(bodyData)
+    validated = cached.schema.parse(bodyData) as Record<string, unknown>
   } catch (err) {
-    if (err instanceof ShapeError) throw err
-    if (err && typeof err === 'object' && 'issues' in err) {
-      const context = modelName
-        ? `Invalid data for ${method} on model "${modelName}"`
-        : `Invalid data for ${method}`
-      throw new ShapeError(`${context}: ${formatZodError(err as any)}`, { cause: err })
-    }
-    throw err
+    const context = modelName
+      ? `Invalid data for ${method} on model "${modelName}"`
+      : `Invalid data for ${method}`
+    wrapParseError(err, context)
   }
-  return { ...validated, ...deepClone(cached.forced) }
+  return { ...validated!, ...deepClone(cached.forced) }
 }
 
 export function hasDataRefines(

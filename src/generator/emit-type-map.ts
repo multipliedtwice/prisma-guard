@@ -66,7 +66,7 @@ export function emitTypeMap(dmmf: DMMF.Document): string {
 
       return `  ${JSON.stringify(model.name)}: [${constraintsStr}],`
     })
-    .filter(Boolean)
+    .filter((entry): entry is string => entry !== null)
     .join('\n')
 
   const typeMapSource = `export const TYPE_MAP = {\n${modelEntries}\n} as const\n`

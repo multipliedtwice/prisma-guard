@@ -80,11 +80,11 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse(-10)).toBe(-10);
     });
 
-    it("truncates non-integer numbers to integers", () => {
-      expect(schema.parse(3.14)).toBe(3);
-      expect(schema.parse(0.1)).toBe(0);
-      expect(schema.parse(-2.9)).toBe(-2);
-      expect(schema.parse(9.999)).toBe(9);
+    it("rejects non-integer numbers", () => {
+      expect(() => schema.parse(3.14)).toThrow();
+      expect(() => schema.parse(0.1)).toThrow();
+      expect(() => schema.parse(-2.9)).toThrow();
+      expect(() => schema.parse(9.999)).toThrow();
     });
 
     it("coerces valid integer strings to number", () => {
@@ -94,10 +94,10 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse("999999")).toBe(999999);
     });
 
-    it("truncates decimal strings to integer", () => {
-      expect(schema.parse("3.14")).toBe(3);
-      expect(schema.parse("0.9")).toBe(0);
-      expect(schema.parse("-2.7")).toBe(-2);
+    it("rejects decimal strings", () => {
+      expect(() => schema.parse("3.14")).toThrow();
+      expect(() => schema.parse("0.9")).toThrow();
+      expect(() => schema.parse("-2.7")).toThrow();
     });
 
     it("rejects non-numeric strings", () => {
@@ -142,8 +142,8 @@ describe("wrapWithInputCoercion", () => {
       expect(schema.parse([1, "2", 3])).toEqual([1, 2, 3]);
     });
 
-    it("truncates decimal strings in arrays to integers", () => {
-      expect(schema.parse([1, "3.14"])).toEqual([1, 3]);
+    it("rejects arrays with decimal strings", () => {
+      expect(() => schema.parse([1, "3.14"])).toThrow();
     });
 
     it("rejects arrays with non-numeric strings", () => {

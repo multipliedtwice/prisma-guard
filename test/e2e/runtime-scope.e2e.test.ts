@@ -1019,22 +1019,6 @@ describe("e2e: runtime scope extension", () => {
       expect(calls[0].where).toEqual({ tenantId: BigInt(999) });
     });
 
-    it("findUnique loose-compares string vs number scope values", async () => {
-      const guard = makeGuard();
-      const ext = guard.extension(() => ({ Tenant: 42 }));
-
-      const query = async () => ({ id: "p1", tenantId: "42", title: "x" });
-
-      const out = await ext.query.$allOperations({
-        model: "Project",
-        operation: "findUnique",
-        args: { where: { id: "p1" } },
-        query,
-      });
-
-      expect(out).toEqual({ id: "p1", tenantId: "42", title: "x" });
-    });
-
     it("throws PolicyError on empty string scope value", () => {
       const guard = makeGuard();
       const ext = guard.extension(() => ({ Tenant: "" }));

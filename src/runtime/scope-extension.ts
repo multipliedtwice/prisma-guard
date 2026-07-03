@@ -81,26 +81,20 @@ function buildScopedUniqueWhere(
   return { ...topLevel, AND: allConditions };
 }
 
-function isComparableScopeValue(v: unknown): v is string | number | bigint {
-  const t = typeof v;
-  return t === "string" || t === "number" || t === "bigint";
-}
+function scopeValuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
 
-function looseEqual(
-  a: unknown,
-  b: unknown,
-  log?: GuardLogger,
-  fk?: string,
-): boolean {
-  if (a === b) return true;
-  if (!isComparableScopeValue(a) || !isComparableScopeValue(b)) return false;
-  const eq = String(a) === String(b);
-  if (eq && log && fk) {
-    log.warn(
-      `prisma-guard: Scope value for "${fk}" matched via type coercion (${typeof a} ${String(a)} vs ${typeof b} ${String(b)}). Consider normalizing types in the context function.`,
-    );
+  const aIsBig = typeof a === "bigint"
+  const bIsBig = typeof b === "bigint"
+
+  if (aIsBig && typeof b === "number") {
+    return Number.isInteger(b) && a === BigInt(b)
   }
-  return eq;
+  if (bIsBig && typeof a === "number") {
+    return Number.isInteger(a) && b === BigInt(a)
+  }
+
+  return false
 }
 
 function buildFkSelect(fks: string[]): Record<string, true> {
@@ -459,7 +453,7 @@ async function handleFindUnique(
   const result = await query(nextArgs);
   if (result === null) return result;
 
-  if (typeof result !== "object" || result === null) {
+  if (typeof result !== "object") {
     throw new ShapeError(
       `${operation} on model "${model}" returned a non-object, non-null result`,
     );
@@ -495,7 +489,7 @@ async function handleFindUnique(
         `prisma-guard: Scope verification re-query on model "${model}" returned null for an existing ${operation} result. The record may have been deleted between the original query and verification.`,
       );
     }
-    if (typeof verifyResult !== "object" || verifyResult === null) {
+    if (typeof verifyResult !== "object") {
       throw new PolicyError(
         `prisma-guard: Scope verification re-query on model "${model}" returned a non-object result.`,
       );
@@ -511,7 +505,7 @@ async function handleFindUnique(
         `prisma-guard: Cannot verify scope on model "${model}" — FK field "${fk}" not present in verification result. Ensure "${fk}" is selectable on model "${model}" (not excluded by select or field-level access).`,
       );
     }
-    if (!looseEqual(verifyObj[fk], value, log, fk)) {
+    if (!scopeValuesEqual(verifyObj[fk], value)) {
       if (operation === "findUniqueOrThrow") {
         throw new PolicyError(
           `prisma-guard: Record on model "${model}" not accessible in current scope`,

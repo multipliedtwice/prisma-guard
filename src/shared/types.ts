@@ -64,10 +64,23 @@ export type MutationMethod =
 
 export type OrderByFieldConfig = true | Record<string, true>
 
+export interface NestedArgs {
+  where?: Record<string, unknown>
+  include?: Record<string, true | NestedArgs>
+  select?: Record<string, true | NestedArgs>
+  orderBy?: Record<string, OrderByFieldConfig>
+  cursor?: Record<string, unknown>
+  take?: number | { max: number; default?: number }
+  skip?: true
+}
+
+export type NestedIncludeArgs = NestedArgs
+export type NestedSelectArgs = NestedArgs
+
 export interface ShapeConfig {
   where?: Record<string, unknown>
-  include?: Record<string, true | NestedIncludeArgs>
-  select?: Record<string, true | NestedSelectArgs>
+  include?: Record<string, true | NestedArgs>
+  select?: Record<string, true | NestedArgs>
   orderBy?: true | Record<string, OrderByFieldConfig>
   cursor?: Record<string, unknown>
   take?: number | { max: number; default?: number }
@@ -80,26 +93,6 @@ export interface ShapeConfig {
   _max?: Record<string, true>
   by?: string[]
   having?: Record<string, true>
-}
-
-export interface NestedIncludeArgs {
-  where?: Record<string, unknown>
-  include?: Record<string, true | NestedIncludeArgs>
-  select?: Record<string, true | NestedSelectArgs>
-  orderBy?: Record<string, OrderByFieldConfig>
-  cursor?: Record<string, unknown>
-  take?: number | { max: number; default?: number }
-  skip?: true
-}
-
-export interface NestedSelectArgs {
-  where?: Record<string, unknown>
-  include?: Record<string, true | NestedIncludeArgs>
-  select?: Record<string, true | NestedSelectArgs>
-  orderBy?: Record<string, OrderByFieldConfig>
-  cursor?: Record<string, unknown>
-  take?: number | { max: number; default?: number }
-  skip?: true
 }
 
 export type ShapeOrFn<TCtx = unknown> =

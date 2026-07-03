@@ -1,62 +1,58 @@
 import pkg from '@prisma/generator-helper'
 const { generatorHandler } = pkg
 import type { DMMF, GeneratorOptions } from '@prisma/generator-helper'
-import { mkdirSync, writeFileSync } from 'fs'
-import { dirname, relative } from 'path'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { relative } from 'path'
+import { z } from 'zod'
 import { emitClient } from './emit-client.js'
 import { emitScopeMap } from './emit-scope-map.js'
 import { emitTypeMap } from './emit-type-map.js'
 import { emitTypedShapes } from './emit-typed-shapes.js'
 import { emitZodChains } from './emit-zod-chains.js'
+import {
+  resolveImportStyle,
+  type PrismaClientKind,
+} from './import-style.js'
 
-const VALID_ON_INVALID_ZOD = new Set<'error' | 'warn'>(['error', 'warn'])
-const VALID_ON_AMBIGUOUS_SCOPE = new Set<'error' | 'warn' | 'ignore'>(['error', 'warn', 'ignore'])
-const VALID_ON_MISSING_SCOPE_CONTEXT = new Set<'error' | 'warn' | 'ignore'>(['error', 'warn', 'ignore'])
-const VALID_FIND_UNIQUE_MODE = new Set<'verify' | 'reject'>(['verify', 'reject'])
-const VALID_ON_SCOPE_RELATION_WRITE = new Set<'error' | 'warn' | 'strip'>(['error', 'warn', 'strip'])
-const VALID_BOOLEAN_CONFIG = new Set(['true', 'false'])
-const VALID_TYPED_GUARD_DEPTH = new Set(['0', '1', '2', '3'])
+const booleanConfig = z
+  .enum(['true', 'false'])
+  .transform((v) => v === 'true')
 
-function validateConfigEnum<T extends string>(
-  name: string,
-  value: string,
-  allowed: Set<T>,
-): T {
-  if (!allowed.has(value as T)) {
-    throw new Error(
-      `prisma-guard: Invalid generator config "${name}": "${value}". Allowed values: ${[...allowed].join(', ')}`,
-    )
-  }
+const configSchema = z.object({
+  onInvalidZod: z.enum(['error', 'warn']).default('error'),
+  onAmbiguousScope: z.enum(['error', 'warn', 'ignore']).default('error'),
+  onMissingScopeContext: z.enum(['error', 'warn', 'ignore']).default('error'),
+  findUniqueMode: z.enum(['verify', 'reject']).default('reject'),
+  onScopeRelationWrite: z.enum(['error', 'warn', 'strip']).default('error'),
+  strictDecimal: booleanConfig.default(false),
+  enforceProjection: booleanConfig.default(false),
+  typedGuardShapes: booleanConfig.default(true),
+  typedGuardRelationDepth: z
+    .enum(['0', '1', '2', '3'])
+    .default('1')
+    .transform((v) => Number(v) as 0 | 1 | 2 | 3),
+  importStyle: z.enum(['auto', 'none', 'js', 'ts']).default('auto'),
+  runtimeImportPath: z
+    .string()
+    .trim()
+    .min(1, 'runtimeImportPath must be a non-empty string')
+    .default('prisma-guard'),
+})
 
-  return value as T
-}
+type ResolvedConfig = z.infer<typeof configSchema>
 
-function validateBooleanConfig(
-  name: string,
-  raw: string | undefined,
-  fallback: boolean,
-): boolean {
-  const value = raw ?? (fallback ? 'true' : 'false')
+function parseGeneratorConfig(raw: Record<string, unknown>): ResolvedConfig {
+  const result = configSchema.safeParse(raw)
+  if (result.success) return result.data
 
-  if (!VALID_BOOLEAN_CONFIG.has(value)) {
-    throw new Error(
-      `prisma-guard: Invalid generator config "${name}": "${value}". Allowed values: true, false`,
-    )
-  }
+  const issues = result.error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
+      return `"${path}": ${issue.message}`
+    })
+    .join('; ')
 
-  return value === 'true'
-}
-
-function validateDepthConfig(raw: string | undefined): 0 | 1 | 2 | 3 {
-  const value = raw ?? '1'
-
-  if (!VALID_TYPED_GUARD_DEPTH.has(value)) {
-    throw new Error(
-      `prisma-guard: Invalid generator config "typedGuardRelationDepth": "${value}". Allowed values: 0, 1, 2, 3`,
-    )
-  }
-
-  return Number(value) as 0 | 1 | 2 | 3
+  throw new Error(`prisma-guard: Invalid generator config: ${issues}`)
 }
 
 function emitZodDefaults(defaults: Record<string, string[]>): string {
@@ -87,26 +83,55 @@ function getProviderValue(provider: unknown): string {
   return ''
 }
 
-function isPrismaClientProvider(provider: unknown): boolean {
+function classifyPrismaProvider(provider: unknown): 'prisma-client-js' | 'prisma-client' | null {
   const value = getProviderValue(provider)
-  return value === 'prisma-client-js' || value.endsWith('/prisma-client-js')
+
+  if (value === 'prisma-client-js' || value.endsWith('/prisma-client-js')) {
+    return 'prisma-client-js'
+  }
+
+  if (value === 'prisma-client' || value.endsWith('/prisma-client')) {
+    return 'prisma-client'
+  }
+
+  return null
 }
 
 function normalizeImportPath(path: string): string {
   const normalized = path.replace(/\\/g, '/')
+  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
+    return '@prisma/client'
+  }
   if (normalized.startsWith('.')) return normalized
   return `./${normalized}`
 }
 
-function resolvePrismaClientImport(options: GeneratorOptions, guardOutput: string): string {
-  const prismaClientGenerator = options.otherGenerators.find((generator) =>
-    isPrismaClientProvider(generator.provider),
-  )
+function resolvePrismaClientImport(
+  options: GeneratorOptions,
+  guardOutput: string,
+): { path: string; kind: PrismaClientKind } {
+  let matched: { provider: 'prisma-client-js' | 'prisma-client'; output: string } | null = null
 
-  const clientOutput = prismaClientGenerator?.output?.value
-  if (!clientOutput) return '@prisma/client'
+  for (const generator of options.otherGenerators) {
+    const providerKind = classifyPrismaProvider(generator.provider)
+    if (!providerKind) continue
 
-  return normalizeImportPath(relative(guardOutput, clientOutput))
+    const output = generator.output?.value
+    if (!output) continue
+
+    matched = { provider: providerKind, output }
+    break
+  }
+
+  if (!matched) return { path: '@prisma/client', kind: 'package' }
+
+  const rel = relative(guardOutput, matched.output)
+  if (rel.length === 0) return { path: '@prisma/client', kind: 'package' }
+
+  return {
+    path: normalizeImportPath(rel),
+    kind: matched.provider,
+  }
 }
 
 generatorHandler({
@@ -121,80 +146,31 @@ generatorHandler({
     const output = options.generator.output?.value
     if (!output) throw new Error('prisma-guard: No output directory specified')
 
-    const config = options.generator.config ?? {}
+    const rawConfig = (options.generator.config ?? {}) as Record<string, unknown>
+    const cfg = parseGeneratorConfig(rawConfig)
 
-    const onInvalidZod = validateConfigEnum(
-      'onInvalidZod',
-      (config.onInvalidZod as string) ?? 'error',
-      VALID_ON_INVALID_ZOD,
-    )
-
-    const onAmbiguousScope = validateConfigEnum(
-      'onAmbiguousScope',
-      (config.onAmbiguousScope as string) ?? 'error',
-      VALID_ON_AMBIGUOUS_SCOPE,
-    )
-
-    const onMissingScopeContext = validateConfigEnum(
-      'onMissingScopeContext',
-      (config.onMissingScopeContext as string) ?? 'error',
-      VALID_ON_MISSING_SCOPE_CONTEXT,
-    )
-
-    const findUniqueMode = validateConfigEnum(
-      'findUniqueMode',
-      (config.findUniqueMode as string) ?? 'reject',
-      VALID_FIND_UNIQUE_MODE,
-    )
-
-    const onScopeRelationWrite = validateConfigEnum(
-      'onScopeRelationWrite',
-      (config.onScopeRelationWrite as string) ?? 'error',
-      VALID_ON_SCOPE_RELATION_WRITE,
-    )
-
-    const strictDecimal = validateBooleanConfig(
-      'strictDecimal',
-      config.strictDecimal as string | undefined,
-      false,
-    )
-
-    const enforceProjection = validateBooleanConfig(
-      'enforceProjection',
-      config.enforceProjection as string | undefined,
-      false,
-    )
-
-    const typedGuardShapes = validateBooleanConfig(
-      'typedGuardShapes',
-      config.typedGuardShapes as string | undefined,
-      true,
-    )
-
-    const typedGuardRelationDepth = validateDepthConfig(
-      config.typedGuardRelationDepth as string | undefined,
-    )
+    const importStyle = resolveImportStyle(output, cfg.importStyle)
 
     const dmmf: DMMF.Document = options.dmmf
     const parts: string[] = []
 
     parts.push(
       `export const GUARD_CONFIG = {\n` +
-        `  onMissingScopeContext: ${JSON.stringify(onMissingScopeContext)},\n` +
-        `  findUniqueMode: ${JSON.stringify(findUniqueMode)},\n` +
-        `  onScopeRelationWrite: ${JSON.stringify(onScopeRelationWrite)},\n` +
-        `  strictDecimal: ${JSON.stringify(strictDecimal)},\n` +
-        `  enforceProjection: ${JSON.stringify(enforceProjection)},\n` +
+        `  onMissingScopeContext: ${JSON.stringify(cfg.onMissingScopeContext)},\n` +
+        `  findUniqueMode: ${JSON.stringify(cfg.findUniqueMode)},\n` +
+        `  onScopeRelationWrite: ${JSON.stringify(cfg.onScopeRelationWrite)},\n` +
+        `  strictDecimal: ${JSON.stringify(cfg.strictDecimal)},\n` +
+        `  enforceProjection: ${JSON.stringify(cfg.enforceProjection)},\n` +
         `} as const\n`,
     )
 
-    const { source: scopeSource } = emitScopeMap(dmmf, onAmbiguousScope)
+    const { source: scopeSource } = emitScopeMap(dmmf, cfg.onAmbiguousScope)
     parts.push(scopeSource)
 
     const typeMapSource = emitTypeMap(dmmf)
     parts.push(typeMapSource)
 
-    const { source: zodChainsSource, defaults } = emitZodChains(dmmf, onInvalidZod)
+    const { source: zodChainsSource, defaults } = emitZodChains(dmmf, cfg.onInvalidZod)
     parts.push(zodChainsSource)
     parts.push(emitZodDefaults(defaults))
 
@@ -202,16 +178,27 @@ generatorHandler({
 
     writeFileSync(`${output}/index.ts`, parts.join('\n'), 'utf-8')
 
-    const prismaClientImport = resolvePrismaClientImport(options, output)
-    const clientSource = emitClient(dmmf, prismaClientImport)
+    const { path: prismaClientImport, kind: prismaClientKind } =
+      resolvePrismaClientImport(options, output)
+    const clientSource = emitClient(
+      dmmf,
+      prismaClientImport,
+      prismaClientKind,
+      importStyle,
+      cfg.runtimeImportPath,
+    )
     writeFileSync(`${output}/client.ts`, clientSource, 'utf-8')
 
-    if (typedGuardShapes) {
+    const shapesPath = `${output}/shapes.ts`
+
+    if (cfg.typedGuardShapes) {
       writeFileSync(
-        `${output}/shapes.ts`,
-        emitTypedShapes(dmmf, typedGuardRelationDepth),
+        shapesPath,
+        emitTypedShapes(dmmf, cfg.typedGuardRelationDepth, importStyle, cfg.runtimeImportPath),
         'utf-8',
       )
+    } else if (existsSync(shapesPath)) {
+      rmSync(shapesPath, { force: true })
     }
   },
 })

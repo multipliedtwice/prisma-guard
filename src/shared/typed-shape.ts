@@ -51,13 +51,16 @@ export type ListRelationFields<TM extends TypeMapConst, M extends keyof TM> = {
     : never
 }[keyof TM[M]] & string
 
-export type WritableFields<TM extends TypeMapConst, M extends keyof TM> = {
+export type WritableScalarFields<TM extends TypeMapConst, M extends keyof TM> = {
   [K in keyof TM[M]]: TM[M][K]['isRelation'] extends true
     ? never
     : TM[M][K]['isUpdatedAt'] extends true
       ? never
       : K
 }[keyof TM[M]] & string
+
+export type WritableFields<TM extends TypeMapConst, M extends keyof TM> =
+  WritableScalarFields<TM, M> | RelationFields<TM, M>
 
 export type UniqueFields<TM extends TypeMapConst, M extends keyof TM> = {
   [K in keyof TM[M]]: TM[M][K]['isUnique'] extends true
@@ -284,6 +287,35 @@ export type TypedCountSelect<TM extends TypeMapConst, M extends keyof TM> =
 export type TypedCountField<TM extends TypeMapConst, M extends keyof TM> =
   true | Partial<Record<ScalarFields<TM, M> | '_all', true>>
 
+export interface TypedRelationWriteConfig {
+  connect?: unknown
+  connectOrCreate?: unknown
+  create?: unknown
+  createMany?: unknown
+  disconnect?: unknown
+  delete?: unknown
+  set?: unknown
+  update?: unknown
+  updateMany?: unknown
+  upsert?: unknown
+  deleteMany?: unknown
+}
+
+type WritableFieldValue<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  K extends keyof TM[M],
+> = TM[M][K]['isRelation'] extends true
+  ? TypedRelationWriteConfig
+  : unknown
+
+export type TypedDataShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+> = Partial<{
+  [K in WritableFields<TM, M>]: WritableFieldValue<TM, M, K>
+}>
+
 export type TypedShapeProps<
   TM extends TypeMapConst,
   M extends keyof TM,
@@ -305,9 +337,9 @@ export type TypedShapeProps<
   _sum: Partial<Record<NumericFields<TM, M>, true>>
   _min: Partial<Record<ComparableFields<TM, M>, true>>
   _max: Partial<Record<ComparableFields<TM, M>, true>>
-  data: Partial<Record<WritableFields<TM, M>, unknown>>
-  create: Partial<Record<WritableFields<TM, M>, unknown>>
-  update: Partial<Record<WritableFields<TM, M>, unknown>>
+  data: TypedDataShape<TM, M>
+  create: TypedDataShape<TM, M>
+  update: TypedDataShape<TM, M>
 }
 
 type BaseOperationShape<
@@ -335,7 +367,7 @@ type CountShape<
   select?: TypedCountSelect<TM, M>
 }
 
-type UniqueWhereShape<
+type WithUniqueWhereOptional<
   TM extends TypeMapConst,
   M extends keyof TM,
   O extends OperationName,
@@ -345,7 +377,7 @@ type UniqueWhereShape<
   where?: TypedUniqueWhere<TM, M, UM>
 }
 
-type RequiredUniqueWhereShape<
+type WithUniqueWhereRequired<
   TM extends TypeMapConst,
   M extends keyof TM,
   O extends OperationName,
@@ -353,6 +385,86 @@ type RequiredUniqueWhereShape<
   UM extends UniqueMapConst,
 > = Omit<BaseOperationShape<TM, M, O, D, UM>, 'where'> & {
   where: TypedUniqueWhere<TM, M, UM>
+}
+
+type RequiredUpdateShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'update', D, UM>, 'where' | 'data'> & {
+  where: TypedUniqueWhere<TM, M, UM>
+  data: TypedDataShape<TM, M>
+}
+
+type RequiredUpsertShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'upsert', D, UM>, 'where' | 'create' | 'update'> & {
+  where: TypedUniqueWhere<TM, M, UM>
+  create: TypedDataShape<TM, M>
+  update: TypedDataShape<TM, M>
+}
+
+type RequiredCreateShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'create', D, UM>, 'data'> & {
+  data: TypedDataShape<TM, M>
+}
+
+type RequiredCreateManyShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'createMany', D, UM>, 'data'> & {
+  data: TypedDataShape<TM, M>
+}
+
+type RequiredCreateManyAndReturnShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'createManyAndReturn', D, UM>, 'data'> & {
+  data: TypedDataShape<TM, M>
+}
+
+type RequiredUpdateManyShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'updateMany', D, UM>, 'data' | 'where'> & {
+  data: TypedDataShape<TM, M>
+  where: TypedWhere<TM, M>
+}
+
+type RequiredUpdateManyAndReturnShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<
+  BaseOperationShape<TM, M, 'updateManyAndReturn', D, UM>,
+  'data' | 'where'
+> & {
+  data: TypedDataShape<TM, M>
+  where: TypedWhere<TM, M>
+}
+
+type RequiredDeleteManyShape<
+  TM extends TypeMapConst,
+  M extends keyof TM,
+  D extends ShapeDepth,
+  UM extends UniqueMapConst,
+> = Omit<BaseOperationShape<TM, M, 'deleteMany', D, UM>, 'where'> & {
+  where: TypedWhere<TM, M>
 }
 
 export type OperationShape<
@@ -363,20 +475,32 @@ export type OperationShape<
   UM extends UniqueMapConst = {},
 > =
   O extends 'findUnique'
-    ? RequiredUniqueWhereShape<TM, M, 'findUnique', D, UM>
+    ? WithUniqueWhereRequired<TM, M, 'findUnique', D, UM>
     : O extends 'findUniqueOrThrow'
-      ? RequiredUniqueWhereShape<TM, M, 'findUniqueOrThrow', D, UM>
+      ? WithUniqueWhereRequired<TM, M, 'findUniqueOrThrow', D, UM>
       : O extends 'update'
-        ? UniqueWhereShape<TM, M, 'update', D, UM>
+        ? RequiredUpdateShape<TM, M, D, UM>
         : O extends 'delete'
-          ? UniqueWhereShape<TM, M, 'delete', D, UM>
+          ? WithUniqueWhereRequired<TM, M, 'delete', D, UM>
           : O extends 'upsert'
-            ? UniqueWhereShape<TM, M, 'upsert', D, UM>
-            : O extends 'groupBy'
-              ? RequireKeys<BaseOperationShape<TM, M, 'groupBy', D, UM>, 'by'>
-              : O extends 'count'
-                ? CountShape<TM, M, D, UM>
-                : BaseOperationShape<TM, M, O, D, UM>
+            ? RequiredUpsertShape<TM, M, D, UM>
+            : O extends 'create'
+              ? RequiredCreateShape<TM, M, D, UM>
+              : O extends 'createMany'
+                ? RequiredCreateManyShape<TM, M, D, UM>
+                : O extends 'createManyAndReturn'
+                  ? RequiredCreateManyAndReturnShape<TM, M, D, UM>
+                  : O extends 'updateMany'
+                    ? RequiredUpdateManyShape<TM, M, D, UM>
+                    : O extends 'updateManyAndReturn'
+                      ? RequiredUpdateManyAndReturnShape<TM, M, D, UM>
+                      : O extends 'deleteMany'
+                        ? RequiredDeleteManyShape<TM, M, D, UM>
+                        : O extends 'groupBy'
+                          ? RequireKeys<BaseOperationShape<TM, M, 'groupBy', D, UM>, 'by'>
+                          : O extends 'count'
+                            ? CountShape<TM, M, D, UM>
+                            : BaseOperationShape<TM, M, O, D, UM>
 
 export type TypedGuardShape<
   TM extends TypeMapConst,

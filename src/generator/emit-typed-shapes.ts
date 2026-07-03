@@ -1,5 +1,6 @@
 import type { DMMF } from '@prisma/generator-helper'
 import { OPERATION_SHAPE_KEYS } from '../shared/operation-shape-keys.js'
+import { withImportStyle, type ImportStyle } from './import-style.js'
 
 const OPERATIONS = Object.keys(OPERATION_SHAPE_KEYS) as Array<
   keyof typeof OPERATION_SHAPE_KEYS
@@ -12,9 +13,13 @@ function cap(s: string): string {
 export function emitTypedShapes(
   dmmf: DMMF.Document,
   depth: 0 | 1 | 2 | 3,
+  importStyle: ImportStyle,
+  runtimeImportPath: string,
 ): string {
+  const indexImport = withImportStyle('./index', importStyle)
+
   const header =
-    `import type { TYPE_MAP, UNIQUE_MAP } from './index'\n` +
+    `import type { TYPE_MAP, UNIQUE_MAP } from '${indexImport}'\n` +
     `import type {\n` +
     `  TypedGuardShape,\n` +
     `  OperationShape,\n` +
@@ -22,7 +27,7 @@ export function emitTypedShapes(
     `  TypedProjection,\n` +
     `  TypedInclude,\n` +
     `  TypedCountSelect,\n` +
-    `} from 'prisma-guard'\n\n` +
+    `} from '${runtimeImportPath}'\n\n` +
     `type TM = typeof TYPE_MAP\n` +
     `type UM = typeof UNIQUE_MAP\n\n`
 

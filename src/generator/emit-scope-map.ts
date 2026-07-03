@@ -12,9 +12,28 @@ interface RelationEntry {
   relationName: string
 }
 
+type IssueMode = 'error' | 'warn' | 'ignore'
+
+function reportScopeIssue(
+  mode: IssueMode,
+  errorMsg: string,
+  warnMsg: string,
+): void {
+  if (mode === 'error') throw new Error(`prisma-guard: ${errorMsg}`)
+  if (mode === 'warn') console.warn(`prisma-guard: ${warnMsg}`)
+}
+
+function serializeScopeEntry(e: {
+  fk: string
+  root: string
+  relationName: string
+}): string {
+  return `{ fk: ${JSON.stringify(e.fk)}, root: ${JSON.stringify(e.root)}, relationName: ${JSON.stringify(e.relationName)} }`
+}
+
 export function emitScopeMap(
   dmmf: DMMF.Document,
-  onAmbiguousScope: 'error' | 'warn' | 'ignore',
+  onAmbiguousScope: IssueMode,
 ): { source: string } {
   const rootModels = new Set<string>()
 
@@ -36,17 +55,13 @@ export function emitScopeMap(
       if (!rootModels.has(field.type)) continue
 
       if (field.relationFromFields.length > 1) {
-        const msg = `Model "${model.name}" has a composite foreign key to scope root "${field.type}" via relation "${field.name}" ` +
+        const compositeMsg =
+          `Model "${model.name}" has a composite foreign key to scope root "${field.type}" via relation "${field.name}" ` +
           `(fields: ${field.relationFromFields.join(', ')}). Composite scope relations are not supported.`
+        const excludeMsg =
+          `${compositeMsg} Excluding relation "${field.name}" to scope root "${field.type}" from scope map for model "${model.name}".`
 
-        if (onAmbiguousScope === 'error') {
-          throw new Error(`prisma-guard: ${msg}`)
-        }
-
-        if (onAmbiguousScope === 'warn') {
-          console.warn(`prisma-guard: ${msg} Excluding relation "${field.name}" to scope root "${field.type}" from scope map for model "${model.name}".`)
-        }
-
+        reportScopeIssue(onAmbiguousScope, compositeMsg, excludeMsg)
         continue
       }
 
@@ -70,19 +85,14 @@ export function emitScopeMap(
     for (const [root, rels] of Object.entries(relationsByRoot)) {
       if (rels.length > 1) {
         const relNames = rels.map(r => r.relationName)
-        const msg = `Model "${model.name}" has multiple relations to scope root "${root}" (${relNames.join(', ')}).`
+        const ambiguousMsg =
+          `Model "${model.name}" has multiple relations to scope root "${root}" (${relNames.join(', ')}).`
+        const errorMsg =
+          `Ambiguous scope detected. Resolve these or set onAmbiguousScope to "warn" or "ignore":\n  - ${ambiguousMsg}`
+        const warnMsg =
+          `${ambiguousMsg} Excluding relations to scope root "${root}" from scope map for model "${model.name}".`
 
-        if (onAmbiguousScope === 'error') {
-          throw new Error(
-            `prisma-guard: Ambiguous scope detected. Resolve these or set onAmbiguousScope to "warn" or "ignore":\n` +
-            `  - ${msg}`,
-          )
-        }
-
-        if (onAmbiguousScope === 'warn') {
-          console.warn(`prisma-guard: ${msg} Excluding relations to scope root "${root}" from scope map for model "${model.name}".`)
-        }
-
+        reportScopeIssue(onAmbiguousScope, errorMsg, warnMsg)
         continue
       }
 
@@ -102,9 +112,7 @@ export function emitScopeMap(
 
   const mapEntries = Object.entries(scopeMap)
     .map(([model, entries]) => {
-      const entriesStr = entries
-        .map(e => `{ fk: ${JSON.stringify(e.fk)}, root: ${JSON.stringify(e.root)}, relationName: ${JSON.stringify(e.relationName)} }`)
-        .join(', ')
+      const entriesStr = entries.map(serializeScopeEntry).join(', ')
       return `  ${model}: [${entriesStr}],`
     })
     .join('\n')

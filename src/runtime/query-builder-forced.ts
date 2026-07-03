@@ -1,181 +1,152 @@
-import { z } from "zod";
-import type { UniqueMap } from "../shared/types.js";
-import { isPlainObject } from "../shared/utils.js";
-import { deepClone } from "../shared/deep-clone.js";
-import { formatZodError, ShapeError } from "../shared/errors.js";
-import { isForcedValue } from "../shared/constants.js";
+import { z } from 'zod'
+import type { UniqueMap } from '../shared/types.js'
+import { isPlainObject } from '../shared/utils.js'
+import { deepClone } from '../shared/deep-clone.js'
+import { formatZodError, ShapeError } from '../shared/errors.js'
+import { isForcedValue } from '../shared/constants.js'
+import { deepEqual } from '../shared/deep-equal.js'
+import {
+  formatUniqueConstraints,
+  type UniqueConstraintMeta,
+} from '../shared/unique-constraints.js'
 
 export interface WhereForced {
-  conditions: Record<string, unknown>;
-  relations: Record<string, Record<string, WhereForced>>;
+  conditions: Record<string, unknown>
+  relations: Record<string, Record<string, WhereForced>>
 }
 
 export const EMPTY_WHERE_FORCED: WhereForced = {
   conditions: {},
   relations: {},
-};
+}
 
 export function hasWhereForced(f: WhereForced): boolean {
   return (
     Object.keys(f.conditions).length > 0 || Object.keys(f.relations).length > 0
-  );
+  )
 }
 
 export interface ForcedTree {
-  where?: WhereForced;
-  include?: Record<string, ForcedTree>;
-  select?: Record<string, ForcedTree>;
-  _countWhere?: Record<string, WhereForced>;
-  _countWherePlacement?: "include" | "select";
+  where?: WhereForced
+  include?: Record<string, ForcedTree>
+  select?: Record<string, ForcedTree>
+  _countWhere?: Record<string, WhereForced>
+  _countWherePlacement?: 'include' | 'select'
 }
 
 export interface BuiltShape {
-  zodSchema: z.ZodObject<any>;
-  forcedWhere: WhereForced;
-  forcedOnlyWhereKeys: Set<string>;
-  forcedIncludeTree: Record<string, ForcedTree>;
-  forcedSelectTree: Record<string, ForcedTree>;
-  forcedIncludeCountWhere: Record<string, WhereForced>;
-  forcedSelectCountWhere: Record<string, WhereForced>;
+  zodSchema: z.ZodObject<any>
+  forcedWhere: WhereForced
+  forcedOnlyWhereKeys: Set<string>
+  forcedIncludeTree: Record<string, ForcedTree>
+  forcedSelectTree: Record<string, ForcedTree>
+  forcedIncludeCountWhere: Record<string, WhereForced>
+  forcedSelectCountWhere: Record<string, WhereForced>
 }
 
-type UniqueConstraintLike = {
-  selector: string;
-  fields: readonly string[];
-};
-
-function forcedScalarsEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== typeof b) return false;
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
-  }
-  if (a instanceof RegExp && b instanceof RegExp) {
-    return a.source === b.source && a.flags === b.flags;
-  }
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => forcedScalarsEqual(v, b[i]));
-  }
-  if (isPlainObject(a) && isPlainObject(b)) {
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-    if (aKeys.length !== bKeys.length) return false;
-    return aKeys.every(
-      (k) => k in b && forcedScalarsEqual(a[k], b[k]),
-    );
-  }
-  return false;
-}
+type UniqueConstraintLike =
+  | UniqueConstraintMeta
+  | { readonly selector: string; readonly fields: readonly string[] }
 
 function tryInlineForcedField(
   result: Record<string, unknown>,
   field: string,
   forcedValue: unknown,
 ): boolean {
-  if (!(field in result)) return false;
-  if (!isPlainObject(forcedValue)) return false;
+  if (!(field in result)) return false
+  if (!isPlainObject(forcedValue)) return false
 
-  const existing = result[field];
+  const existing = result[field]
 
   if (!isPlainObject(existing)) {
-    const merged: Record<string, unknown> = { equals: existing };
+    const merged: Record<string, unknown> = { equals: existing }
     for (const [op, value] of Object.entries(forcedValue)) {
-      merged[op] = deepClone(value);
+      merged[op] = deepClone(value)
     }
-    result[field] = merged;
-    return true;
+    result[field] = merged
+    return true
   }
 
-  const merged: Record<string, unknown> = { ...existing };
+  const merged: Record<string, unknown> = { ...existing }
 
   for (const [op, value] of Object.entries(forcedValue)) {
     if (op in merged) {
-      if (!forcedScalarsEqual(merged[op], value)) {
+      if (!deepEqual(merged[op], value)) {
         throw new ShapeError(
           `Conflicting where values for "${field}.${op}": client provided a different value than the forced shape`,
-        );
+        )
       }
-      continue;
+      continue
     }
-    merged[op] = deepClone(value);
+    merged[op] = deepClone(value)
   }
 
-  result[field] = merged;
-  return true;
+  result[field] = merged
+  return true
 }
 
 export function mergeWhereForced(
   where: Record<string, unknown> | undefined,
   forced: WhereForced,
 ): Record<string, unknown> {
-  if (!hasWhereForced(forced)) return where ?? {};
+  if (!hasWhereForced(forced)) return where ?? {}
 
-  let result: Record<string, unknown> = where ? deepClone(where) : {};
+  let result: Record<string, unknown> = where ? deepClone(where) : {}
 
   for (const [relName, opMap] of Object.entries(forced.relations)) {
-    if (!result[relName] || typeof result[relName] !== "object") {
-      result[relName] = {};
+    if (!result[relName] || typeof result[relName] !== 'object') {
+      result[relName] = {}
     }
 
-    const relObj = result[relName] as Record<string, unknown>;
+    const relObj = result[relName] as Record<string, unknown>
 
     for (const [op, nestedForced] of Object.entries(opMap)) {
       relObj[op] = mergeWhereForced(
         relObj[op] as Record<string, unknown> | undefined,
         nestedForced,
-      );
+      )
     }
   }
 
   if (Object.keys(forced.conditions).length > 0) {
-    const remaining: Record<string, unknown> = {};
+    const remaining: Record<string, unknown> = {}
 
     for (const [field, forcedValue] of Object.entries(forced.conditions)) {
-      const inlined = tryInlineForcedField(result, field, forcedValue);
+      if (field === 'NOT') {
+        const existing = result[field]
+        const forcedArr = Array.isArray(forcedValue)
+          ? forcedValue.map(deepClone)
+          : [deepClone(forcedValue)]
+
+        if (existing === undefined) {
+          result[field] =
+            forcedArr.length === 1 ? forcedArr[0] : forcedArr
+        } else {
+          const existingArr = Array.isArray(existing)
+            ? existing
+            : [existing]
+          result[field] = [...existingArr, ...forcedArr]
+        }
+
+        continue
+      }
+
+      const inlined = tryInlineForcedField(result, field, forcedValue)
       if (!inlined) {
-        remaining[field] = deepClone(forcedValue);
+        remaining[field] = deepClone(forcedValue)
       }
     }
 
     if (Object.keys(remaining).length > 0) {
       if (Object.keys(result).length === 0) {
-        result = remaining;
+        result = remaining
       } else {
-        result = { AND: [result, remaining] };
+        result = { AND: [result, remaining] }
       }
     }
   }
 
-  return result;
-}
-
-function uniqueValuesEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== typeof b) return false;
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
-  }
-
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => uniqueValuesEqual(v, b[i]));
-  }
-
-  if (isPlainObject(a) && isPlainObject(b)) {
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-
-    if (aKeys.length !== bKeys.length) return false;
-
-    return aKeys.every((key) => key in b && uniqueValuesEqual(a[key], b[key]));
-  }
-
-  return false;
+  return result
 }
 
 function mergeUniqueValue(
@@ -183,37 +154,37 @@ function mergeUniqueValue(
   key: string,
   value: unknown,
 ): void {
-  const cloned = deepClone(value);
+  const cloned = deepClone(value)
 
   if (!(key in target)) {
-    target[key] = cloned;
-    return;
+    target[key] = cloned
+    return
   }
 
-  const existing = target[key];
+  const existing = target[key]
 
   if (isPlainObject(existing) && isPlainObject(cloned)) {
-    const merged = { ...existing };
+    const merged = { ...existing }
 
     for (const [nestedKey, nestedValue] of Object.entries(cloned)) {
       if (
         nestedKey in merged &&
-        !uniqueValuesEqual(merged[nestedKey], nestedValue)
+        !deepEqual(merged[nestedKey], nestedValue)
       ) {
         throw new ShapeError(
           `Conflicting unique where value for "${key}.${nestedKey}"`,
-        );
+        )
       }
 
-      merged[nestedKey] = nestedValue;
+      merged[nestedKey] = nestedValue
     }
 
-    target[key] = merged;
-    return;
+    target[key] = merged
+    return
   }
 
-  if (!uniqueValuesEqual(existing, cloned)) {
-    throw new ShapeError(`Conflicting unique where value for "${key}"`);
+  if (!deepEqual(existing, cloned)) {
+    throw new ShapeError(`Conflicting unique where value for "${key}"`)
   }
 }
 
@@ -221,21 +192,21 @@ export function mergeUniqueWhereForced(
   where: Record<string, unknown> | undefined,
   forced: WhereForced,
 ): Record<string, unknown> {
-  if (!hasWhereForced(forced)) return where ?? {};
+  if (!hasWhereForced(forced)) return where ?? {}
 
   if (Object.keys(forced.relations).length > 0) {
     throw new ShapeError(
-      "Unique where forced conditions cannot contain relation filters",
-    );
+      'Unique where forced conditions cannot contain relation filters',
+    )
   }
 
-  const result: Record<string, unknown> = where ? deepClone(where) : {};
+  const result: Record<string, unknown> = where ? deepClone(where) : {}
 
   for (const [key, value] of Object.entries(forced.conditions)) {
-    mergeUniqueValue(result, key, value);
+    mergeUniqueValue(result, key, value)
   }
 
-  return result;
+  return result
 }
 
 export function applyBuiltShape(
@@ -244,20 +215,48 @@ export function applyBuiltShape(
   isUniqueMethod: boolean,
   modelName?: string,
 ): Record<string, unknown> {
-  let parseable = body;
-  const hasWhereInSchema = "where" in built.zodSchema.shape;
+  let parseable = body
+  const hasWhereInSchema = 'where' in built.zodSchema.shape
 
   if (isPlainObject(body)) {
-    const bodyObj = body as Record<string, unknown>;
+    const bodyObj = body as Record<string, unknown>
 
-    if ("select" in bodyObj && "include" in bodyObj) {
-      throw new ShapeError('Request cannot define both "include" and "select"');
+    if ('select' in bodyObj && 'include' in bodyObj) {
+      throw new ShapeError('Request cannot define both "include" and "select"')
     }
 
-    if ("where" in bodyObj) {
-      if (!hasWhereInSchema) {
-        const { where: _, ...rest } = bodyObj;
-        parseable = rest;
+    if ('where' in bodyObj) {
+      if (bodyObj.where === undefined || bodyObj.where === null) {
+        const { where: _, ...rest } = bodyObj
+        parseable = rest
+      } else if (!hasWhereInSchema) {
+        const context = modelName ? ` on model "${modelName}"` : ''
+
+        if (!hasWhereForced(built.forcedWhere)) {
+          throw new ShapeError(
+            `Guard shape does not allow "where"${context}`,
+          )
+        }
+
+        if (!isPlainObject(bodyObj.where)) {
+          throw new ShapeError(
+            `Invalid "where"${context}: must be a plain object`,
+          )
+        }
+
+        const remaining = stripUniqueWhereForcedInput(
+          bodyObj.where as Record<string, unknown>,
+          built.forcedWhere,
+        )
+
+        if (Object.keys(remaining).length > 0) {
+          throw new ShapeError(
+            `Guard shape where${context} contains only forced conditions. Client where input is not accepted.`,
+          )
+        }
+
+        const { where: _, ...rest } = bodyObj
+        parseable = rest
       } else if (
         isUniqueMethod &&
         hasWhereForced(built.forcedWhere) &&
@@ -266,55 +265,55 @@ export function applyBuiltShape(
         const where = stripUniqueWhereForcedInput(
           bodyObj.where as Record<string, unknown>,
           built.forcedWhere,
-        );
+        )
 
         if (Object.keys(where).length === 0) {
-          const { where: _, ...rest } = bodyObj;
-          parseable = rest;
+          const { where: _, ...rest } = bodyObj
+          parseable = rest
         } else {
-          parseable = { ...bodyObj, where };
+          parseable = { ...bodyObj, where }
         }
       } else if (
         built.forcedOnlyWhereKeys.size > 0 &&
         isPlainObject(bodyObj.where)
       ) {
-        const where = { ...(bodyObj.where as Record<string, unknown>) };
+        const where = { ...(bodyObj.where as Record<string, unknown>) }
 
         for (const key of built.forcedOnlyWhereKeys) {
-          delete where[key];
+          delete where[key]
         }
 
         if (
           Object.keys(where).length === 0 &&
           hasWhereForced(built.forcedWhere)
         ) {
-          const { where: _, ...rest } = bodyObj;
-          parseable = rest;
+          const { where: _, ...rest } = bodyObj
+          parseable = rest
         } else {
-          parseable = { ...bodyObj, where };
+          parseable = { ...bodyObj, where }
         }
       }
     }
   }
 
-  let validated: Record<string, unknown>;
+  let validated: Record<string, unknown>
 
   try {
-    validated = built.zodSchema.parse(parseable) as Record<string, unknown>;
+    validated = built.zodSchema.parse(parseable) as Record<string, unknown>
   } catch (err) {
-    if (err instanceof ShapeError) throw err;
+    if (err instanceof ShapeError) throw err
 
-    if (err && typeof err === "object" && "issues" in err) {
+    if (err && typeof err === 'object' && 'issues' in err) {
       const context = modelName
         ? `Invalid query on model "${modelName}"`
-        : "Invalid query";
+        : 'Invalid query'
 
       throw new ShapeError(`${context}: ${formatZodError(err as any)}`, {
         cause: err,
-      });
+      })
     }
 
-    throw err;
+    throw err
   }
 
   if (hasWhereForced(built.forcedWhere)) {
@@ -326,198 +325,219 @@ export function applyBuiltShape(
       : mergeWhereForced(
           validated.where as Record<string, unknown> | undefined,
           built.forcedWhere,
-        );
+        )
   }
 
   if (Object.keys(built.forcedIncludeTree).length > 0) {
-    applyForcedTree(validated, "include", built.forcedIncludeTree);
+    applyForcedTree(validated, 'include', built.forcedIncludeTree)
   }
 
   if (Object.keys(built.forcedSelectTree).length > 0) {
-    applyForcedTree(validated, "select", built.forcedSelectTree);
+    applyForcedTree(validated, 'select', built.forcedSelectTree)
   }
 
   if (Object.keys(built.forcedIncludeCountWhere).length > 0) {
-    const ic = validated.include as Record<string, unknown> | undefined;
-    if (ic) applyForcedCountWhere(ic, built.forcedIncludeCountWhere);
+    const ic = validated.include as Record<string, unknown> | undefined
+    if (ic) applyForcedCountWhere(ic, built.forcedIncludeCountWhere)
   }
 
   if (Object.keys(built.forcedSelectCountWhere).length > 0) {
-    const sc = validated.select as Record<string, unknown> | undefined;
-    if (sc) applyForcedCountWhere(sc, built.forcedSelectCountWhere);
+    const sc = validated.select as Record<string, unknown> | undefined
+    if (sc) applyForcedCountWhere(sc, built.forcedSelectCountWhere)
   }
 
-  return validated;
+  return validated
 }
 
 function buildCountForPlacement(
   countWhere: Record<string, WhereForced>,
 ): Record<string, unknown> {
-  const countSelect: Record<string, unknown> = {};
+  const countSelect: Record<string, unknown> = {}
 
   for (const [countRel, countForced] of Object.entries(countWhere)) {
-    countSelect[countRel] = { where: mergeWhereForced(undefined, countForced) };
+    countSelect[countRel] = { where: mergeWhereForced(undefined, countForced) }
   }
 
-  return { _count: { select: countSelect } };
+  return { _count: { select: countSelect } }
+}
+
+interface ForcedTreeVisitor {
+  mode: 'apply' | 'build'
+  getBase(): Record<string, unknown> | undefined
+  onRelation(
+    relName: string,
+    forced: ForcedTree,
+    base: Record<string, unknown>,
+  ): void
+}
+
+function collectSubtree(
+  forced: ForcedTree,
+): Record<string, unknown> {
+  const nested: Record<string, unknown> = {}
+
+  if (forced.where && hasWhereForced(forced.where)) {
+    nested.where = mergeWhereForced(undefined, forced.where)
+  }
+
+  if (forced.include) {
+    nested.include = buildForcedOnlyContainer(forced.include)
+  }
+
+  if (forced.select) {
+    nested.select = buildForcedOnlyContainer(forced.select)
+  }
+
+  if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
+    const placement = forced._countWherePlacement ?? 'include'
+    if (!nested[placement]) nested[placement] = {}
+    const placementObj = nested[placement] as Record<string, unknown>
+    Object.assign(placementObj, buildCountForPlacement(forced._countWhere))
+  }
+
+  return nested
+}
+
+function applyForcedToRelValue(
+  relName: string,
+  relVal: unknown,
+  forced: ForcedTree,
+): unknown {
+  if (relVal === true) {
+    const expanded = collectSubtree(forced)
+
+    if (forced.include) {
+      applyForcedTree(expanded, 'include', forced.include)
+    }
+    if (forced.select) {
+      applyForcedTree(expanded, 'select', forced.select)
+    }
+
+    if (expanded.include && expanded.select) {
+      throw new ShapeError(
+        `Forced tree for relation "${relName}" produces both "include" and "select". Prisma does not allow both at the same level.`,
+      )
+    }
+
+    return Object.keys(expanded).length > 0 ? expanded : true
+  }
+
+  if (!isPlainObject(relVal)) return relVal
+
+  const relObj = relVal as Record<string, unknown>
+
+  if (forced.where && hasWhereForced(forced.where)) {
+    relObj.where = mergeWhereForced(
+      relObj.where as Record<string, unknown> | undefined,
+      forced.where,
+    )
+  }
+
+  if (forced.include) {
+    if (!relObj.include) {
+      relObj.include = buildForcedOnlyContainer(forced.include)
+    }
+    applyForcedTree(relObj, 'include', forced.include)
+  }
+
+  if (forced.select) {
+    if (!relObj.select) {
+      relObj.select = buildForcedOnlyContainer(forced.select)
+    }
+    applyForcedTree(relObj, 'select', forced.select)
+  }
+
+  if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
+    const placement = forced._countWherePlacement ?? 'include'
+    const existing = relObj[placement]
+    let placementObj: Record<string, unknown>
+
+    if (!isPlainObject(existing)) {
+      placementObj = {}
+      relObj[placement] = placementObj
+    } else {
+      placementObj = existing as Record<string, unknown>
+    }
+
+    if (!('_count' in placementObj)) {
+      Object.assign(placementObj, buildCountForPlacement(forced._countWhere))
+    } else {
+      applyForcedCountWhere(placementObj, forced._countWhere)
+    }
+  }
+
+  if (relObj.include && relObj.select) {
+    throw new ShapeError(
+      `Relation "${relName}" has both "include" and "select" after forced tree merge. Prisma does not allow both at the same level.`,
+    )
+  }
+
+  return relObj
 }
 
 export function applyForcedTree(
   validated: Record<string, unknown>,
-  key: "include" | "select",
+  key: 'include' | 'select',
   tree: Record<string, ForcedTree>,
 ): void {
-  const container = validated[key] as Record<string, unknown> | undefined;
-  if (!container) return;
+  const container = validated[key] as Record<string, unknown> | undefined
+  if (!container) return
 
   for (const [relName, forced] of Object.entries(tree)) {
-    const relVal = container[relName];
-    if (relVal === undefined) continue;
+    const relVal = container[relName]
+    if (relVal === undefined) continue
 
-    if (relVal === true) {
-      const expanded: Record<string, unknown> = {};
-
-      if (forced.where && hasWhereForced(forced.where)) {
-        expanded.where = mergeWhereForced(undefined, forced.where);
-      }
-
-      if (forced.include) {
-        expanded.include = buildForcedOnlyContainer(forced.include);
-        applyForcedTree(expanded, "include", forced.include);
-      }
-
-      if (forced.select) {
-        expanded.select = buildForcedOnlyContainer(forced.select);
-        applyForcedTree(expanded, "select", forced.select);
-      }
-
-      if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-        const placement = forced._countWherePlacement ?? "include";
-
-        if (!expanded[placement]) expanded[placement] = {};
-
-        const placementObj = expanded[placement] as Record<string, unknown>;
-        Object.assign(placementObj, buildCountForPlacement(forced._countWhere));
-      }
-
-      if (expanded.include && expanded.select) {
-        throw new ShapeError(
-          `Forced tree for relation "${relName}" produces both "include" and "select". Prisma does not allow both at the same level.`,
-        );
-      }
-
-      container[relName] = Object.keys(expanded).length > 0 ? expanded : true;
-      continue;
-    }
-
-    if (isPlainObject(relVal)) {
-      const relObj = relVal as Record<string, unknown>;
-
-      if (forced.where && hasWhereForced(forced.where)) {
-        relObj.where = mergeWhereForced(
-          relObj.where as Record<string, unknown> | undefined,
-          forced.where,
-        );
-      }
-
-      if (forced.include) {
-        if (!relObj.include) {
-          relObj.include = buildForcedOnlyContainer(forced.include);
-        }
-
-        applyForcedTree(relObj, "include", forced.include);
-      }
-
-      if (forced.select) {
-        if (!relObj.select) {
-          relObj.select = buildForcedOnlyContainer(forced.select);
-        }
-
-        applyForcedTree(relObj, "select", forced.select);
-      }
-
-      if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-        const placement = forced._countWherePlacement ?? "include";
-        const projContainer = relObj[placement] as
-          | Record<string, unknown>
-          | undefined;
-
-        if (projContainer) {
-          applyForcedCountWhere(projContainer, forced._countWhere);
-        }
-      }
-
-      if (relObj.include && relObj.select) {
-        throw new ShapeError(
-          `Relation "${relName}" has both "include" and "select" after forced tree merge. Prisma does not allow both at the same level.`,
-        );
-      }
-    }
+    container[relName] = applyForcedToRelValue(relName, relVal, forced)
   }
 }
 
 export function buildForcedOnlyContainer(
   tree: Record<string, ForcedTree>,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = {}
 
   for (const [relName, forced] of Object.entries(tree)) {
-    const nested: Record<string, unknown> = {};
-
-    if (forced.where && hasWhereForced(forced.where)) {
-      nested.where = mergeWhereForced(undefined, forced.where);
-    }
-
-    if (forced.include) {
-      nested.include = buildForcedOnlyContainer(forced.include);
-    }
-
-    if (forced.select) {
-      nested.select = buildForcedOnlyContainer(forced.select);
-    }
-
-    if (forced._countWhere && Object.keys(forced._countWhere).length > 0) {
-      const placement = forced._countWherePlacement ?? "include";
-
-      if (!nested[placement]) nested[placement] = {};
-
-      const placementObj = nested[placement] as Record<string, unknown>;
-      Object.assign(placementObj, buildCountForPlacement(forced._countWhere));
-    }
-
-    result[relName] = Object.keys(nested).length > 0 ? nested : true;
+    const nested = collectSubtree(forced)
+    result[relName] = Object.keys(nested).length > 0 ? nested : true
   }
 
-  return result;
+  return result
 }
 
 export function applyForcedCountWhere(
   container: Record<string, unknown>,
   forcedCountWhere: Record<string, WhereForced>,
 ): void {
-  const countVal = container._count;
-  if (!countVal || countVal === true || !isPlainObject(countVal)) return;
+  const countVal = container._count
+  if (!countVal || countVal === true || !isPlainObject(countVal)) return
 
-  const countObj = countVal as Record<string, unknown>;
-  const selectVal = countObj.select;
+  const countObj = countVal as Record<string, unknown>
+  const selectVal = countObj.select
 
-  if (!selectVal || !isPlainObject(selectVal)) return;
+  if (!selectVal || !isPlainObject(selectVal)) return
 
-  const selectObj = selectVal as Record<string, unknown>;
+  const selectObj = selectVal as Record<string, unknown>
 
   for (const [relName, forced] of Object.entries(forcedCountWhere)) {
-    const relVal = selectObj[relName];
-    if (relVal === undefined) continue;
+    const relVal = selectObj[relName]
+
+    if (relVal === undefined) {
+      selectObj[relName] = { where: mergeWhereForced(undefined, forced) }
+      continue
+    }
 
     if (relVal === true) {
-      selectObj[relName] = { where: mergeWhereForced(undefined, forced) };
-    } else if (isPlainObject(relVal)) {
-      const relObj = relVal as Record<string, unknown>;
+      selectObj[relName] = { where: mergeWhereForced(undefined, forced) }
+      continue
+    }
+
+    if (isPlainObject(relVal)) {
+      const relObj = relVal as Record<string, unknown>
 
       relObj.where = mergeWhereForced(
         relObj.where as Record<string, unknown> | undefined,
         forced,
-      );
+      )
     }
   }
 }
@@ -525,37 +545,25 @@ export function applyForcedCountWhere(
 export function collectWhereFieldKeys(
   where: Record<string, unknown>,
 ): Set<string> {
-  const keys = new Set<string>();
+  const keys = new Set<string>()
 
   for (const [key, value] of Object.entries(where)) {
-    if (key === "AND") {
-      const items = Array.isArray(value) ? value : [value];
+    if (key === 'AND') {
+      const items = Array.isArray(value) ? value : [value]
 
       for (const item of items) {
         if (isPlainObject(item)) {
           for (const k of collectWhereFieldKeys(item)) {
-            keys.add(k);
+            keys.add(k)
           }
         }
       }
-    } else if (key !== "OR" && key !== "NOT") {
-      keys.add(key);
+    } else if (key !== 'OR' && key !== 'NOT') {
+      keys.add(key)
     }
   }
 
-  return keys;
-}
-
-function formatUniqueConstraint(constraint: UniqueConstraintLike): string {
-  return constraint.fields.length === 1
-    ? constraint.selector
-    : `${constraint.selector}(${constraint.fields.join(", ")})`;
-}
-
-function formatUniqueConstraints(
-  constraints: readonly UniqueConstraintLike[],
-): string {
-  return constraints.map(formatUniqueConstraint).join(" | ");
+  return keys
 }
 
 function resolvedWhereCoversConstraint(
@@ -563,13 +571,13 @@ function resolvedWhereCoversConstraint(
   constraint: UniqueConstraintLike,
 ): boolean {
   if (constraint.fields.length === 1) {
-    return constraint.fields[0] in where;
+    return constraint.fields[0] in where
   }
 
-  const value = where[constraint.selector];
-  if (!isPlainObject(value)) return false;
+  const value = where[constraint.selector]
+  if (!isPlainObject(value)) return false
 
-  return constraint.fields.every((field) => field in value);
+  return constraint.fields.every((field) => field in value)
 }
 
 export function validateResolvedUniqueWhere(
@@ -578,17 +586,17 @@ export function validateResolvedUniqueWhere(
   method: string,
   uniqueMap: UniqueMap,
 ): void {
-  const constraints = uniqueMap[model];
-  if (!constraints || constraints.length === 0) return;
+  const constraints = uniqueMap[model]
+  if (!constraints || constraints.length === 0) return
 
   const covered = constraints.some((constraint) =>
     resolvedWhereCoversConstraint(where, constraint),
-  );
+  )
 
   if (!covered) {
     throw new ShapeError(
       `${method} on model "${model}" requires resolved where to cover a unique constraint: ${formatUniqueConstraints(constraints)}`,
-    );
+    )
   }
 }
 
@@ -599,33 +607,33 @@ function assertDirectUniqueShapeValue(
   typeMap?: Record<string, Record<string, { isRelation: boolean }>>,
 ): void {
   if (typeMap && model) {
-    const fieldMeta = typeMap[model]?.[field];
+    const fieldMeta = typeMap[model]?.[field]
 
     if (!fieldMeta) {
-      throw new ShapeError(`Unknown unique where field "${model}.${field}"`);
+      throw new ShapeError(`Unknown unique where field "${model}.${field}"`)
     }
 
     if (fieldMeta.isRelation) {
       throw new ShapeError(
         `Relation field "${model}.${field}" cannot be used in unique where`,
-      );
+      )
     }
   }
 
-  if (isForcedValue(value)) return;
+  if (isForcedValue(value)) return
 
   if (isPlainObject(value)) {
-    const keys = Object.keys(value);
+    const keys = Object.keys(value)
 
     throw new ShapeError(
-      `Invalid unique where shape for "${model ?? "unknown"}.${field}". Prisma WhereUniqueInput does not accept filter operator objects${keys.length ? `: ${keys.join(", ")}` : ""}. Use { ${field}: true } in guard shape and { ${field}: value } in request args.`,
-    );
+      `Invalid unique where shape for "${model ?? 'unknown'}.${field}". Prisma WhereUniqueInput does not accept filter operator objects${keys.length ? `: ${keys.join(', ')}` : ''}. Use { ${field}: true } in guard shape and { ${field}: value } in request args.`,
+    )
   }
 
   if (value === null || value === undefined) {
     throw new ShapeError(
-      `Invalid unique where shape for "${model ?? "unknown"}.${field}". Unique fields must use true or a forced value.`,
-    );
+      `Invalid unique where shape for "${model ?? 'unknown'}.${field}". Unique fields must use true or a forced value.`,
+    )
   }
 }
 
@@ -636,34 +644,34 @@ function shapeCoversConstraint(
   typeMap?: Record<string, Record<string, { isRelation: boolean }>>,
 ): boolean {
   if (constraint.fields.length === 1) {
-    const field = constraint.fields[0];
+    const field = constraint.fields[0]
 
-    if (!(field in where)) return false;
+    if (!(field in where)) return false
 
-    assertDirectUniqueShapeValue(model, field, where[field], typeMap);
+    assertDirectUniqueShapeValue(model, field, where[field], typeMap)
 
-    return true;
+    return true
   }
 
-  if (!(constraint.selector in where)) return false;
+  if (!(constraint.selector in where)) return false
 
-  const selectorValue = where[constraint.selector];
+  const selectorValue = where[constraint.selector]
 
-  if (isForcedValue(selectorValue)) return true;
+  if (isForcedValue(selectorValue)) return true
 
   if (!isPlainObject(selectorValue)) {
     throw new ShapeError(
-      `Compound unique selector "${model}.${constraint.selector}" must be an object with fields: ${constraint.fields.join(", ")}`,
-    );
+      `Compound unique selector "${model}.${constraint.selector}" must be an object with fields: ${constraint.fields.join(', ')}`,
+    )
   }
 
-  const allowed = new Set(constraint.fields);
+  const allowed = new Set(constraint.fields)
 
   for (const key of Object.keys(selectorValue)) {
     if (!allowed.has(key)) {
       throw new ShapeError(
-        `Unknown field "${key}" in compound unique selector "${model}.${constraint.selector}". Allowed fields: ${constraint.fields.join(", ")}`,
-      );
+        `Unknown field "${key}" in compound unique selector "${model}.${constraint.selector}". Allowed fields: ${constraint.fields.join(', ')}`,
+      )
     }
   }
 
@@ -671,13 +679,13 @@ function shapeCoversConstraint(
     if (!(field in selectorValue)) {
       throw new ShapeError(
         `Missing field "${field}" in compound unique selector "${model}.${constraint.selector}"`,
-      );
+      )
     }
 
-    assertDirectUniqueShapeValue(model, field, selectorValue[field], typeMap);
+    assertDirectUniqueShapeValue(model, field, selectorValue[field], typeMap)
   }
 
-  return true;
+  return true
 }
 
 export function validateUniqueEquality(
@@ -687,17 +695,17 @@ export function validateUniqueEquality(
   uniqueMap: UniqueMap,
   typeMap?: Record<string, Record<string, { isRelation: boolean }>>,
 ): void {
-  const constraints = uniqueMap[model];
-  if (!constraints || constraints.length === 0) return;
+  const constraints = uniqueMap[model]
+  if (!constraints || constraints.length === 0) return
 
   const valid = constraints.some((constraint) =>
     shapeCoversConstraint(where, constraint, model, typeMap),
-  );
+  )
 
   if (!valid) {
     throw new ShapeError(
       `${method} on model "${model}" requires unique where shape to cover a unique constraint using Prisma unique selector syntax: ${formatUniqueConstraints(constraints)}`,
-    );
+    )
   }
 }
 
@@ -705,31 +713,43 @@ export function stripUniqueWhereForcedInput(
   where: Record<string, unknown>,
   forced: WhereForced,
 ): Record<string, unknown> {
-  const result = deepClone(where);
+  const result = deepClone(where)
 
   for (const [key, forcedValue] of Object.entries(forced.conditions)) {
-    if (!(key in result)) continue;
+    if (!(key in result)) continue
 
-    const currentValue = result[key];
+    const currentValue = result[key]
 
     if (isPlainObject(currentValue) && isPlainObject(forcedValue)) {
-      const nested = { ...currentValue };
+      const nested = { ...currentValue }
 
-      for (const nestedKey of Object.keys(forcedValue)) {
-        delete nested[nestedKey];
+      for (const [nestedKey, nestedForcedValue] of Object.entries(forcedValue)) {
+        if (nestedKey in nested && !deepEqual(nested[nestedKey], nestedForcedValue)) {
+          throw new ShapeError(
+            `Client unique where value for "${key}.${nestedKey}" conflicts with forced value`,
+          )
+        }
+
+        delete nested[nestedKey]
       }
 
       if (Object.keys(nested).length === 0) {
-        delete result[key];
+        delete result[key]
       } else {
-        result[key] = nested;
+        result[key] = nested
       }
 
-      continue;
+      continue
     }
 
-    delete result[key];
+    if (!deepEqual(currentValue, forcedValue)) {
+      throw new ShapeError(
+        `Client unique where value for "${key}" conflicts with forced value`,
+      )
+    }
+
+    delete result[key]
   }
 
-  return result;
+  return result
 }

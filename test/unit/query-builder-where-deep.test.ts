@@ -385,7 +385,8 @@ describe("where: combinators", () => {
       where: { name: { contains: "test" } },
     });
     expect(result.where).toEqual({
-      AND: [{ name: { contains: "test" } }, { NOT: { age: { equals: 0 } } }],
+      name: { contains: "test" },
+      NOT: { age: { equals: 0 } },
     });
   });
 

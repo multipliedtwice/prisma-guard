@@ -2,6 +2,21 @@ import { z } from "zod";
 
 export type ScalarBaseMap = Record<string, () => z.ZodTypeAny>;
 
+function isPrismaNullSentinel(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const tag = (value as { _tag?: unknown })._tag;
+  if (tag === "DbNull" || tag === "JsonNull" || tag === "AnyNull") return true;
+  const constructorName = (value as { constructor?: { name?: unknown } }).constructor?.name;
+  if (
+    constructorName === "DbNull" ||
+    constructorName === "JsonNull" ||
+    constructorName === "AnyNull"
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isJsonSafe(value: unknown): boolean {
   type Entry = { tag: "visit"; value: unknown } | { tag: "exit"; ref: object };
 
@@ -20,6 +35,7 @@ function isJsonSafe(value: unknown): boolean {
 
     if (current === undefined) return false;
     if (current === null) continue;
+    if (isPrismaNullSentinel(current)) continue;
 
     switch (typeof current) {
       case "string":
@@ -136,11 +152,11 @@ export function wrapWithInputCoercion(
       break;
     case "Int":
       itemCoercion = z.union([
-        z.number().transform((v) => Math.trunc(v)).pipe(z.number().int()),
+        z.number().int(),
         z
           .string()
-          .regex(/^-?\d+(\.\d+)?$/)
-          .transform((v) => Math.trunc(Number(v))),
+          .regex(/^-?\d+$/)
+          .transform((v) => Number(v)),
       ]);
       break;
     case "Float":

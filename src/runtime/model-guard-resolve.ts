@@ -1,4 +1,4 @@
-import type { GuardShape, GuardShapeOrFn, GuardInput } from '../shared/types.js'
+import type { GuardInput, GuardShape, ShapeOrFn } from '../shared/types.js'
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
 import { matchCallerPattern } from '../shared/match-caller.js'
@@ -15,138 +15,166 @@ export interface ResolvedShape {
 function isGuardShape(obj: unknown): obj is GuardShape {
   if (!isPlainObject(obj)) return false
   const keys = Object.keys(obj)
-  return keys.length === 0 || keys.every(k => GUARD_SHAPE_KEYS.has(k))
-}
-
-function isSingleShape(input: GuardInput): input is GuardShapeOrFn {
-  return typeof input === 'function' || isGuardShape(input)
-}
-
-function toPlainObject(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(toPlainObject)
-  if (value instanceof Date) return value
-  if (value instanceof Uint8Array) return value
-  if (value instanceof RegExp) return value
-  if (
-    typeof (value as any).toFixed === 'function' &&
-    typeof (value as any).toNumber === 'function'
-  ) return value
-  const result: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    result[k] = toPlainObject(v)
-  }
-  return result
+  return keys.length === 0 || keys.every((k) => GUARD_SHAPE_KEYS.has(k))
 }
 
 function requireBody(body: unknown): Record<string, unknown> {
-  const normalized = toPlainObject(body)
-  if (!isPlainObject(normalized)) throw new ShapeError('Request body must be an object')
-  return normalized as Record<string, unknown>
+  if (body === undefined || body === null) return {}
+
+  if (!isPlainObject(body)) {
+    throw new ShapeError('Request body must be a plain object')
+  }
+
+  return body as Record<string, unknown>
 }
 
-export function resolveDynamicShape(
-  fn: (ctx: any) => GuardShape,
-  contextFn: () => Record<string, unknown>,
+function assertNoCallerInBody(body: Record<string, unknown>): void {
+  if ('caller' in body) {
+    throw new CallerError(
+      'Pass caller via the guard(input, caller) argument, not in the request body.',
+    )
+  }
+}
+
+function resolveDynamicShape(
+  shapeFn: (ctx: any) => GuardShape,
+  ctx: unknown,
+  context: string,
 ): GuardShape {
-  const ctx = validateContext(contextFn())
+  if (ctx === undefined) {
+    throw new ShapeError(
+      `Dynamic ${context} requires a context. Provide contextFn on the extension.`,
+    )
+  }
+
   let result: unknown
+
   try {
-    result = fn(ctx)
+    result = shapeFn(ctx)
   } catch (err: any) {
     throw new ShapeError(
-      `Dynamic shape function threw: ${err.message}`,
+      `Dynamic ${context} function threw: ${err.message}`,
       { cause: err },
     )
   }
-  if (!isPlainObject(result)) {
-    throw new ShapeError('Dynamic shape function must return a plain object')
+
+  if (!isGuardShape(result)) {
+    throw new ShapeError(
+      `Dynamic ${context} function must return a valid guard shape object`,
+    )
   }
-  return result as GuardShape
+
+  return result
+}
+
+function resolveNamedShape(
+  input: Record<string, ShapeOrFn<any>>,
+  body: Record<string, unknown>,
+  contextFn: () => Record<string, unknown>,
+  explicitCaller: string | undefined,
+): ResolvedShape {
+  assertNoCallerInBody(body)
+
+  const caller = explicitCaller
+  const keys = Object.keys(input)
+
+  for (const key of keys) {
+    if (GUARD_SHAPE_KEYS.has(key)) {
+      throw new ShapeError(
+        `Caller key "${key}" collides with reserved guard shape key. Rename the caller path.`,
+      )
+    }
+  }
+
+  if (typeof caller !== 'string') {
+    if ('default' in input) {
+      return resolveShapeEntry(input.default, body, contextFn, 'default')
+    }
+
+    throw new CallerError(
+      `Missing caller. This guard uses named shape routing with keys: ${keys.map((k) => `"${k}"`).join(', ')}. ` +
+        `Provide caller via guard(input, caller).`,
+    )
+  }
+
+  const matched = matchCallerPattern(keys, caller)
+
+  if (matched) {
+    return resolveShapeEntry(input[matched], body, contextFn, matched)
+  }
+
+  if ('default' in input) {
+    return resolveShapeEntry(input.default, body, contextFn, 'default')
+  }
+
+  throw new CallerError(
+    `Unknown caller: "${caller}". Allowed: ${keys.map((k) => `"${k}"`).join(', ')}`,
+  )
+}
+
+function resolveShapeEntry(
+  entry: ShapeOrFn<any>,
+  body: Record<string, unknown>,
+  contextFn: () => Record<string, unknown>,
+  matchedKey: string,
+): ResolvedShape {
+  if (typeof entry === 'function') {
+    const ctx = validateContext(contextFn())
+    const shape = resolveDynamicShape(entry, ctx, `shape "${matchedKey}"`)
+
+    return {
+      shape,
+      body,
+      matchedKey,
+      wasDynamic: true,
+    }
+  }
+
+  return {
+    shape: entry as GuardShape,
+    body,
+    matchedKey,
+    wasDynamic: false,
+  }
 }
 
 export function resolveShape(
   input: GuardInput,
-  body: unknown,
+  rawBody: unknown,
   contextFn: () => Record<string, unknown>,
-  caller: string | undefined,
+  explicitCaller: string | undefined,
 ): ResolvedShape {
-  if (isSingleShape(input)) {
-    const wasDynamic = typeof input === 'function'
-    const shape = wasDynamic
-      ? resolveDynamicShape(input as (ctx: any) => GuardShape, contextFn)
-      : input as GuardShape
-    const parsed = body === undefined || body === null
-      ? {}
-      : requireBody(body)
-    return { shape, body: parsed, matchedKey: '_default', wasDynamic }
-  }
+  const body = requireBody(rawBody)
 
-  const namedMap = input as Record<string, GuardShapeOrFn>
+  if (typeof input === 'function') {
+    const ctx = validateContext(contextFn())
+    const shape = resolveDynamicShape(input, ctx, 'shape')
 
-  for (const key of Object.keys(namedMap)) {
-    if (GUARD_SHAPE_KEYS.has(key)) {
-      throw new ShapeError(
-        `Caller key "${key}" collides with reserved shape config key. Rename the caller path.`,
-      )
-    }
-    const val = namedMap[key]
-    if (typeof val !== 'function' && !isGuardShape(val)) {
-      throw new ShapeError(
-        `Named shape value for "${key}" must be a guard shape object or function`,
-      )
+    return {
+      shape,
+      body,
+      matchedKey: '_default',
+      wasDynamic: true,
     }
   }
 
-  const parsed = body === undefined || body === null
-    ? {}
-    : requireBody(body)
-
-  if ('caller' in parsed) {
-    throw new CallerError(
-      'Pass caller as second argument to .guard() or via context function, not in the request body.',
-    )
-  }
-
-  if (typeof caller !== 'string') {
-    if ('default' in namedMap) {
-      const shapeOrFn = namedMap['default']
-      const wasDynamic = typeof shapeOrFn === 'function'
-      const shape = wasDynamic
-        ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape, contextFn)
-        : shapeOrFn as GuardShape
-      return { shape, body: parsed, matchedKey: 'default', wasDynamic }
+  if (isGuardShape(input)) {
+    return {
+      shape: input as GuardShape,
+      body,
+      matchedKey: '_default',
+      wasDynamic: false,
     }
-
-    const patterns = Object.keys(namedMap)
-    throw new CallerError(
-      `Missing caller. This guard uses named shape routing with keys: ${patterns.map(k => `"${k}"`).join(', ')}. ` +
-      `Provide caller as second argument to .guard() or set "caller" in the context function, or add a "default" variant.`,
-    )
   }
 
-  const patterns = Object.keys(namedMap)
-  const matched = matchCallerPattern(patterns, caller)
-  if (!matched) {
-    if ('default' in namedMap) {
-      const shapeOrFn = namedMap['default']
-      const wasDynamic = typeof shapeOrFn === 'function'
-      const shape = wasDynamic
-        ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape, contextFn)
-        : shapeOrFn as GuardShape
-      return { shape, body: parsed, matchedKey: 'default', wasDynamic }
-    }
-
-    throw new CallerError(
-      `Unknown caller: "${caller}". Allowed: ${patterns.map(k => `"${k}"`).join(', ')}`,
-    )
+  if (!isPlainObject(input)) {
+    throw new ShapeError('Guard input must be a shape object or a named map of shapes')
   }
 
-  const shapeOrFn = namedMap[matched]
-  const wasDynamic = typeof shapeOrFn === 'function'
-  const shape = wasDynamic
-    ? resolveDynamicShape(shapeOrFn as (ctx: any) => GuardShape, contextFn)
-    : shapeOrFn as GuardShape
-
-  return { shape, body: parsed, matchedKey: matched, wasDynamic }
+  return resolveNamedShape(
+    input as Record<string, ShapeOrFn<any>>,
+    body,
+    contextFn,
+    explicitCaller,
+  )
 }

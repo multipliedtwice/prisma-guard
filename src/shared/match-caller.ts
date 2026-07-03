@@ -4,6 +4,8 @@ export function matchCallerPattern(
   patterns: string[],
   caller: string,
 ): string | null {
+  if (typeof caller !== 'string' || caller.trim().length === 0) return null
+
   if (patterns.includes(caller)) return caller
 
   const matches: string[] = []

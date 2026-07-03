@@ -23,7 +23,7 @@ export function coerceToArray(value: unknown): unknown {
   if (typeof value !== 'object') return value
   const keys = Object.keys(value as Record<string, unknown>)
   if (keys.length === 0) return value
-  const allNumeric = keys.every((k) => /^\d+$/.test(k))
+  const allNumeric = keys.every((k) => /^\d+$/.test(k) && String(Number(k)) === k)
   if (!allNumeric) return value
   const indices = keys.map(Number).sort((a, b) => a - b)
   for (let i = 0; i < indices.length; i++) {

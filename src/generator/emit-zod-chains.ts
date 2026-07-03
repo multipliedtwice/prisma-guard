@@ -25,38 +25,6 @@ function buildGenerationBase(
   return base
 }
 
-const TYPE_CHANGING_METHODS = new Set([
-  'optional', 'nullable', 'nullish', 'readonly', 'default', 'catch',
-])
-
-function checkChainCompatibility(
-  fieldType: string,
-  isList: boolean,
-  isEnum: boolean,
-  enumValues: readonly string[] | undefined,
-  methods: string[],
-): string | null {
-  let current = buildGenerationBase(fieldType, isList, isEnum, enumValues)
-  if (!current) return null
-
-  for (const method of methods) {
-    if (typeof (current as any)[method] !== 'function') {
-      return method
-    }
-    if (TYPE_CHANGING_METHODS.has(method)) {
-      try {
-        if (method === 'default' || method === 'catch') {
-          current = (current as any)[method](undefined)
-        } else {
-          current = (current as any)[method]()
-        }
-      } catch {
-      }
-    }
-  }
-  return null
-}
-
 function verifyChainExecution(
   fieldType: string,
   isList: boolean,
@@ -65,7 +33,9 @@ function verifyChainExecution(
   chainStr: string,
 ): string | null {
   const base = buildGenerationBase(fieldType, isList, isEnum, enumValues)
-  if (!base) return null
+  if (!base) {
+    return `Unsupported field type "${fieldType}" for @zod directive`
+  }
 
   let fn: (base: z.ZodTypeAny) => z.ZodTypeAny
   try {
@@ -106,6 +76,11 @@ export function emitZodChains(
   const modelChains: Record<string, Record<string, string>> = {}
   const defaults: Record<string, string[]> = {}
 
+  function fail(msg: string): void {
+    if (onInvalidZod === 'error') throw new Error(msg)
+    console.warn(msg)
+  }
+
   for (const model of dmmf.datamodel.models) {
     for (const field of model.fields) {
       if (!field.documentation) continue
@@ -113,12 +88,9 @@ export function emitZodChains(
       const zodLines = findZodInDoc(field.documentation)
 
       if (zodLines.length === 0) continue
+
       if (zodLines.length > 1) {
-        const msg = `prisma-guard: Multiple @zod directives on ${model.name}.${field.name}. Only one @zod per field allowed.`
-        if (onInvalidZod === 'error') {
-          throw new Error(msg)
-        }
-        console.warn(msg)
+        fail(`prisma-guard: Multiple @zod directives on ${model.name}.${field.name}. Only one @zod per field allowed.`)
         continue
       }
 
@@ -127,40 +99,18 @@ export function emitZodChains(
       const chainStr = line.slice(idx + 4).trim()
 
       if (chainStr.length === 0) {
-        const msg = `prisma-guard: Empty @zod directive on ${model.name}.${field.name}. Add a method chain (e.g. @zod .min(1)) or remove the directive.`
-        if (onInvalidZod === 'error') {
-          throw new Error(msg)
-        }
-        console.warn(msg)
+        fail(`prisma-guard: Empty @zod directive on ${model.name}.${field.name}. Add a method chain (e.g. @zod .min(1)) or remove the directive.`)
         continue
       }
 
       const result = validateDirective(chainStr)
-      if (!result.valid) {
-        const msg = `prisma-guard: Invalid @zod directive on ${model.name}.${field.name}: ${result.reason}`
-        if (onInvalidZod === 'error') {
-          throw new Error(msg)
-        }
-        console.warn(msg)
+
+      if (result.valid === false) {
+        fail(`prisma-guard: Invalid @zod directive on ${model.name}.${field.name}: ${result.reason}`)
         continue
       }
 
       const isEnum = enumNames.has(field.type)
-      const incompatible = checkChainCompatibility(
-        field.type,
-        field.isList,
-        isEnum,
-        isEnum ? enumValues[field.type] : undefined,
-        result.methods,
-      )
-      if (incompatible) {
-        const msg = `prisma-guard: @zod method "${incompatible}" on ${model.name}.${field.name} is not compatible with type "${field.type}"${field.isList ? '[]' : ''}`
-        if (onInvalidZod === 'error') {
-          throw new Error(msg)
-        }
-        console.warn(msg)
-        continue
-      }
 
       const execError = verifyChainExecution(
         field.type,
@@ -170,11 +120,7 @@ export function emitZodChains(
         chainStr,
       )
       if (execError) {
-        const msg = `prisma-guard: @zod directive on ${model.name}.${field.name} fails at schema construction: ${execError}`
-        if (onInvalidZod === 'error') {
-          throw new Error(msg)
-        }
-        console.warn(msg)
+        fail(`prisma-guard: @zod directive on ${model.name}.${field.name} fails at schema construction: ${execError}`)
         continue
       }
 

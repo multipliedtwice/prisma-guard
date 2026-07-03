@@ -1,4 +1,3 @@
-import { ZodError } from "zod";
 import type {
   TypeMap,
   GuardConfig,
@@ -9,13 +8,26 @@ import type {
   QuerySchema,
   GuardLogger,
 } from "../shared/types.js";
-import { ShapeError, PolicyError, formatZodError } from "../shared/errors.js";
+import { toShapeError } from "../shared/errors.js";
 import { createScalarBase } from "../shared/scalar-base.js";
 import { createSchemaBuilder } from "./schema-builder.js";
 import { createQueryBuilder } from "./query-builder.js";
 import { createScopeExtension } from "./scope-extension.js";
 import { createModelGuardExtension } from "./model-guard.js";
 import { validateContext } from "./policy.js";
+import { PolicyError } from "../shared/errors.js";
+
+function wrapParseFn<TArgs extends any[], TResult>(
+  fn: (...args: TArgs) => TResult,
+): (...args: TArgs) => TResult {
+  return (...args: TArgs): TResult => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      throw toShapeError(err);
+    }
+  };
+}
 
 export function createGuard<
   TModels extends TypeMap = TypeMap,
@@ -47,28 +59,13 @@ export function createGuard<
   };
   const wrapZodErrors = config.wrapZodErrors ?? false;
 
-  function rethrowZod(err: unknown): never {
-    if (err instanceof ZodError) {
-      throw new ShapeError(`Validation failed: ${formatZodError(err)}`, {
-        cause: err,
-      });
-    }
-    throw err;
-  }
-
   return {
     input: (model: MName, opts: InputOpts) => {
       const result = schemaBuilder.buildInputSchema(model, opts);
       if (!wrapZodErrors) return result;
       return {
         schema: result.schema,
-        parse(data: unknown): Record<string, unknown> {
-          try {
-            return result.parse(data);
-          } catch (err) {
-            rethrowZod(err);
-          }
-        },
+        parse: wrapParseFn(result.parse),
       };
     },
 
@@ -84,13 +81,7 @@ export function createGuard<
       if (!wrapZodErrors) return qs;
       return {
         schemas: qs.schemas,
-        parse(body: unknown, opts?: { ctx?: TCtx }): Record<string, unknown> {
-          try {
-            return qs.parse(body, opts);
-          } catch (err) {
-            rethrowZod(err);
-          }
-        },
+        parse: wrapParseFn(qs.parse),
       };
     },
 

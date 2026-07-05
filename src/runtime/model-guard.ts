@@ -12,6 +12,7 @@ import type {
   GuardGeneratedConfig,
   NestedIncludeArgs,
   NestedSelectArgs,
+  GuardResolvedShape,
 } from '../shared/types.js'
 import {
   ShapeError,
@@ -730,6 +731,47 @@ export function createModelGuardExtension(config: {
       return { ...resolved.body, ...defaultProjection }
     }
 
+    function makeResolveMethod() {
+      const WRITE_KEYS = ['data', 'create', 'update'] as const
+
+      const hasOwn = (obj: object, key: string): boolean =>
+        Object.prototype.hasOwnProperty.call(obj, key)
+
+      return (body?: unknown): GuardResolvedShape => {
+        const caller = resolveCaller()
+        const resolved = resolveShape(input, body, contextFn, caller)
+
+        for (const key of WRITE_KEYS) {
+          if (hasOwn(resolved.shape, key)) {
+            throw new ShapeError(
+              `.resolve() is a read-only planning helper. Guard shape contains write key "${key}". Use the corresponding write method instead.`,
+            )
+          }
+        }
+
+        for (const key of WRITE_KEYS) {
+          if (hasOwn(resolved.body, key)) {
+            throw new ShapeError(
+              `.resolve() is a read-only planning helper. Request body contains write key "${key}".`,
+            )
+          }
+        }
+
+        const effectiveReadBody = buildEffectiveReadBody({
+          shape: resolved.shape,
+          body: resolved.body,
+        })
+
+        return {
+          shape: resolved.shape,
+          body: resolved.body,
+          effectiveReadBody,
+          matchedKey: resolved.matchedKey,
+          wasDynamic: resolved.wasDynamic,
+        }
+      }
+    }
+
     function makeReadMethod(method: QueryMethod) {
       return (body?: unknown) => {
         const caller = resolveCaller()
@@ -1163,6 +1205,7 @@ export function createModelGuardExtension(config: {
     }
 
     return {
+      resolve: makeResolveMethod(),
       findMany: makeReadMethod('findMany'),
       findFirst: makeReadMethod('findFirst'),
       findFirstOrThrow: makeReadMethod('findFirstOrThrow'),

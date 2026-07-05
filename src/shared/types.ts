@@ -165,6 +165,14 @@ export type GuardInput =
   | GuardShapeOrFn
   | Record<string, GuardShapeOrFn>
 
+export interface GuardResolvedShape {
+  shape: GuardShape
+  body: Record<string, unknown>
+  effectiveReadBody: Record<string, unknown>
+  matchedKey: string
+  wasDynamic: boolean
+}
+
 type GuardableMethodName = QueryMethod | MutationMethod
 
 type AnyFn = (...args: any[]) => any
@@ -177,6 +185,8 @@ type DelegateMethod<TDelegate, K extends PropertyKey> =
     : never
 
 export type GuardedModel<TDelegate> = {
+  resolve(body?: unknown): GuardResolvedShape
+} & {
   [K in GuardableMethodName as DelegateMethod<TDelegate, K> extends never ? never : K]:
     DelegateMethod<TDelegate, K>
 }

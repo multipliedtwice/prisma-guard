@@ -102,9 +102,12 @@ export function emitScopeMap(
 
   const roots = Array.from(rootModels).sort()
 
+  const formatEntry = (e: { fk: string; root: string; relationName: string }) =>
+    `{ fk: ${JSON.stringify(e.fk)}, root: ${JSON.stringify(e.root)}, relationName: ${JSON.stringify(e.relationName)} }`
+
   const mapEntries = Object.entries(scopeMap)
     .map(([model, entries]) => {
-      const entriesStr = entries.map(e => JSON.stringify(e)).join(', ')
+      const entriesStr = entries.map(formatEntry).join(', ')
       return `  ${model}: [${entriesStr}],`
     })
     .join('\n')

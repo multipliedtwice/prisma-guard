@@ -1,3 +1,18 @@
+# [1.29.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.28.1...v1.29.0) (2026-07-05)
+
+
+### Bug Fixes
+
+* improve formatting of scope map entries in emitScopeMap function ([4f49e17](https://github.com/multipliedtwice/prisma-guard/commit/4f49e175a954793fc507ccb4a9bbc79f7edfbc85))
+* remove conflicting shape properties in createQueryBuilder ([f39f174](https://github.com/multipliedtwice/prisma-guard/commit/f39f174088a28fb0063d5f2a3d79b738c7c76783))
+
+
+### Features
+
+* add read planning with resolve() to enhance guard functionality ([93b8523](https://github.com/multipliedtwice/prisma-guard/commit/93b85238fa5c9b8c9a7b7737133daa0b3f23fcf5))
+* add resolve method to enhance model guard functionality ([1c1cf7d](https://github.com/multipliedtwice/prisma-guard/commit/1c1cf7d7786968e618fbf56985ad74c4621481c7))
+* Enhance query builder and projection handling ([3b115e6](https://github.com/multipliedtwice/prisma-guard/commit/3b115e67325dea4cb2e97914d59705c4dbf1c57a))
+
 ## [1.28.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.28.0...v1.28.1) (2026-07-03)
 
 

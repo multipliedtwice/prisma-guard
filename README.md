@@ -41,6 +41,7 @@ database
 * [Before / After prisma-guard](#before--after-prisma-guard)
 * [Schema annotations](#schema-annotations)
 * [The guard API](#the-guard-api)
+* [Read planning with resolve()](#read-planning-with-resolve)
 * [Relation writes in data shapes](#relation-writes-in-data-shapes)
 * [Logical combinators in where shapes](#logical-combinators-in-where-shapes)
 * [Relation filters in where shapes](#relation-filters-in-where-shapes)
@@ -511,7 +512,7 @@ When a refine function returns a schema that handles undefined input (e.g. by in
 
 ## The guard API
 
-`.guard(shape)` is available on every model delegate. It returns an object with all Prisma methods. The shape defines the boundary; the method validates and executes.
+`.guard(shape, caller?)` is available on every model delegate. It returns an object with all Prisma methods plus `resolve()`. The shape defines the boundary; the chained Prisma method validates and executes. `resolve()` is a read-planning helper that resolves the same shape boundary without executing Prisma.
 
 ### Data shape syntax
 
@@ -949,6 +950,67 @@ guard shapes can be generated for the paginated route/helper layer.
 
 ---
 
+
+## Read planning with resolve()
+
+`.guard(shape, caller?).resolve(body?)` resolves a read shape without executing a Prisma query.
+
+Use it when integration code needs to inspect the concrete guard shape and effective read body before deciding how to run a read. Typical use cases are generated routers, progressive response streaming, query planners, and adapters that need the same shape resolution as the real guarded method.
+
+```ts
+const resolved = prisma.user
+  .guard(
+    {
+      me: (ctx) => ({
+        where: {
+          id: { equals: force(ctx.userId) },
+        },
+        select: {
+          id: true,
+          email: true,
+          profile: {
+            select: {
+              id: true,
+              displayName: true,
+            },
+          },
+        },
+      }),
+    },
+    'me',
+  )
+  .resolve()
+```
+
+The return value is:
+
+```ts
+{
+  shape: GuardShape
+  body: Record<string, unknown>
+  effectiveReadBody: Record<string, unknown>
+  matchedKey: string
+  wasDynamic: boolean
+}
+```
+
+| Field | Meaning |
+| ----- | ------- |
+| `shape` | The concrete resolved guard shape after caller matching and dynamic shape execution |
+| `body` | The normalized request body. Omitted input becomes `{}` |
+| `effectiveReadBody` | The body used for read planning. If the body has no `select` or `include`, the shape's default read projection is applied |
+| `matchedKey` | The selected named-shape key, such as `default`, `admin`, or `/user/me` |
+| `wasDynamic` | `true` when the matched shape was a function and was executed with guard context |
+
+`resolve()` uses the same guard extension context and caller selection path as `.findMany()`, `.findFirst()`, and the other guarded methods. If the shape is context-dependent, the shape function is called with the current guard context.
+
+`resolve()` is intentionally read-only. It rejects top-level `data`, `create`, and `update` keys on either the resolved shape or the request body. Use the corresponding guarded write method for writes.
+
+`effectiveReadBody` is planning input, not final Prisma args. It does not replace the normal guarded read execution pipeline. The actual guarded read method still validates the body, applies forced values, applies default projection rules, injects scope filters, and calls Prisma.
+
+No Prisma delegate method is called by `resolve()`.
+
+
 ## Relation writes in data shapes
 
 Data shapes support relation fields with a config object describing which nested write operations the client may use. Each operation (`connect`, `create`, `disconnect`, etc.) is configured individually.
@@ -1323,6 +1385,8 @@ where: {
 ## Read projection auto-apply
 
 When a read shape defines `select` or `include`, the projection serves two roles: it whitelists what the client is allowed to request, and it provides the default projection when the client omits `select`/`include` from the body.
+
+The same default-projection behavior is exposed for planning through [`resolve()`](#read-planning-with-resolve): `effectiveReadBody` contains the request body plus the synthesized default projection when the client omitted projection.
 
 A client-provided `select` or `include` is treated as a narrowing request inside the shape's whitelist. It should not widen back to the full default projection. If the client asks for fewer fields than the shape allows, only the requested allowed fields are returned.
 
@@ -2551,3 +2615,4 @@ Possible future improvements:
 ## License
 
 MIT
+

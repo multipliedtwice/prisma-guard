@@ -293,12 +293,6 @@ export function createQueryBuilder(
     validateShapeArgs(method, shape);
     validateUniqueWhere(model, method, shape);
 
-    if (shape.select && shape.include) {
-      throw new ShapeError(
-        `Shape for model "${model}" method "${method}" cannot define both "select" and "include".`,
-      );
-    }
-
     const schemaFields: Record<string, z.ZodTypeAny> = {};
     let forcedWhere: WhereForced = EMPTY_WHERE_FORCED;
     let forcedOnlyWhereKeys = new Set<string>();

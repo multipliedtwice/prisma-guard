@@ -6,6 +6,10 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
+export function isObjectLike(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 export function schemaProducesValueForUndefined(schema: z.ZodTypeAny): boolean {
   const result = schema.safeParse(undefined)
   return result.success && result.data !== undefined

@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.29.0...v1.30.0) (2026-07-06)
+
+
+### Features
+
+* add isObjectLike utility function to check for non-null objects ([9b691c8](https://github.com/multipliedtwice/prisma-guard/commit/9b691c8766baa8c2ce3f0a7ffe47be20d4a7d56b))
+
 # [1.29.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.28.1...v1.29.0) (2026-07-05)
 
 

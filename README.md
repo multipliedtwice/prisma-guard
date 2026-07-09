@@ -644,10 +644,13 @@ For `groupBy`, normal grouped fields and `_count` fields must also be configured
 
 ### Unique where shapes
 
-`findUnique`, `findUniqueOrThrow`, `update`, `delete`, and `upsert` use Prisma's `WhereUniqueInput` syntax. For these methods, unique fields are configured directly in the shape:
+`findUnique`, `findUniqueOrThrow`, `update`, `delete`, and `upsert` use Prisma's `WhereUniqueInput` syntax.
+
+For these methods, configure selector fields directly in the shape:
 ```ts
 await prisma.project
   .guard({
+    data: { title: true },
     where: { id: true },
   })
   .update({
@@ -656,9 +659,108 @@ await prisma.project
   })
 ```
 
-Do not use filter operator objects such as `{ id: { equals: true } }` in unique where shapes. That syntax belongs to normal `WhereInput` filters used by methods such as `findMany`, `findFirst`, `count`, `updateMany`, and `deleteMany`.
+Do not use normal `WhereInput` filter operator objects such as `{ id: { equals: true } }` in unique where shapes. That syntax belongs to normal filter shapes used by methods such as `findMany`, `findFirst`, `count`, `updateMany`, and `deleteMany`.
 
-If a model has multiple single-field unique selectors and the shape lists more than one, the client may use any allowed selector. For example, `where: { id: true, slug: true }` allows a request with `where: { id: '...' }` or `where: { slug: '...' }`. For compound unique constraints, use Prisma's generated compound selector name:
+#### Extra non-unique filters in `update` and `delete`
+
+Prisma `WhereUniqueInput` can include additional non-unique scalar filters alongside a unique selector. This is useful for permission checks.
+
+For example, this is valid Prisma-style update filtering:
+```ts
+await prisma.post.update({
+  where: {
+    id: postId,
+    authorId: userId,
+  },
+  data: {
+    title: 'Updated',
+  },
+})
+```
+
+In prisma-guard shape syntax, model this with direct fields, not filter operators:
+```ts
+await prisma.post
+  .guard({
+    data: { title: true },
+    where: {
+      id: true,
+      authorId: force(userId),
+    },
+  })
+  .update({
+    data: { title: 'Updated' },
+    where: { id: postId },
+  })
+```
+
+The shape above means:
+
+* `id: true` is client-controlled and must be provided by the caller.
+* `authorId: force(userId)` is server-controlled and is merged into the final Prisma `where`.
+* The final Prisma call is constrained by both `id` and `authorId`.
+
+Do not write the same shape as:
+```ts
+where: {
+  id: true,
+  authorId: { equals: force(userId) },
+}
+```
+
+`authorId: { equals: ... }` is normal `WhereInput` filter syntax, not direct `WhereUniqueInput` syntax.
+
+At least one unique selector must still be present. Extra non-unique filters are additional constraints; they do not replace the unique selector requirement.
+
+#### Top-level unique where vs relation write selectors
+
+The direct forced-field syntax applies to **top-level** unique `where` shapes used by methods such as `update`, `delete`, `upsert`, `findUnique`, and `findUniqueOrThrow`.
+
+```ts
+where: {
+  id: true,
+  companyId: force(ctx.companyId),
+}
+```
+
+This lets the client provide `id`, while the server forces `companyId` into the final Prisma `where`.
+
+Do not assume the same forced-field syntax works inside relation write selectors such as `connect`, `disconnect`, `set`, nested `delete`, nested `update.where`, or `connectOrCreate.where`. Relation write selectors use their own validation path and should be configured as normal unique selector allowlists:
+
+```ts
+data: {
+  tags: {
+    connect: { id: true },
+  },
+}
+```
+
+If you need tenant-safe relation writes, validate ownership in application code, use a top-level guarded operation, or rely on database-level constraints such as foreign keys, RLS, or triggers. Nested relation writes bypass automatic tenant scope injection.
+
+#### Multiple unique selectors
+
+If a model has multiple single-field unique selectors and the shape lists more than one, the client may use any allowed selector.
+
+```ts
+where: {
+  id: true,
+  slug: true,
+}
+```
+
+This allows a request with:
+
+```ts
+where: { id: 'project_1' }
+```
+
+or:
+
+```ts
+where: { slug: 'my-project' }
+```
+
+For compound unique constraints, use Prisma's generated compound selector name:
 ```prisma
 model ProjectMember {
   tenantId String
@@ -731,7 +833,17 @@ await prisma.project
   })
 ```
 
-In update mode, all `data` fields are optional. The `where` shape must use Prisma unique selector syntax for `update`.
+In update mode, all `data` fields are optional. The `where` shape must use Prisma `WhereUniqueInput` syntax for `update`.
+
+For permission checks, you may include additional direct scalar filters alongside a unique selector:
+```ts
+where: {
+  id: true,
+  companyId: force(ctx.companyId),
+}
+```
+
+Do not use normal filter operator syntax such as `{ companyId: { equals: force(ctx.companyId) } }` in an update unique where shape.
 
 ### Forced values
 
@@ -774,7 +886,17 @@ await prisma.project
   .delete({ where: { id: 'abc123' } })
 ```
 
-`data` is not valid for delete shapes. The `where` shape must use Prisma unique selector syntax for `delete`.
+`data` is not valid for delete shapes. The `where` shape must use Prisma `WhereUniqueInput` syntax for `delete`.
+
+For permission checks, you may include additional direct scalar filters alongside a unique selector:
+```ts
+where: {
+  id: true,
+  companyId: force(ctx.companyId),
+}
+```
+
+Do not use normal filter operator syntax such as `{ companyId: { equals: force(ctx.companyId) } }` in a delete unique where shape.
 
 ### Batch creates
 ```ts
@@ -1142,6 +1264,8 @@ members: {
   },
 }
 ```
+
+Unlike top-level unique `where` shapes, relation write selector configs are allowlists for client-provided unique selectors. Do not rely on `force()` directly inside these selector configs unless your runtime version explicitly documents support for it.
 
 ### Scope implications
 
@@ -2615,4 +2739,5 @@ Possible future improvements:
 ## License
 
 MIT
+
 

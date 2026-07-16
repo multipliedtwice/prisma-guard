@@ -38,6 +38,17 @@ export function emitTypeMap(dmmf: DMMF.Document): string {
           if (isUnsupported) metaPairs.push(['isUnsupported', true])
           if (field.isUnique) metaPairs.push(['isUnique', true])
 
+          if (
+            isRelation &&
+            Array.isArray(field.relationFromFields) &&
+            field.relationFromFields.length > 0
+          ) {
+            metaPairs.push([
+              'relationFromFields',
+              [...field.relationFromFields],
+            ])
+          }
+
           return `    ${JSON.stringify(field.name)}: { ${serializeMeta(metaPairs)} },`
         })
         .join('\n')

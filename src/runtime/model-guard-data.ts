@@ -5,6 +5,7 @@ import type {
   DataFieldRefine,
   UniqueMap,
   EnumMap,
+  FieldMeta,
 } from '../shared/types.js'
 import { ShapeError, wrapParseError } from '../shared/errors.js'
 import { isForcedValue, isUnsupportedMarker } from '../shared/constants.js'
@@ -88,6 +89,38 @@ export function validateAllowedKeys(
   })
 }
 
+const RELATION_OPS_COVERING_FK = new Set([
+  'connect',
+  'connectOrCreate',
+  'create',
+])
+
+function collectRelationCoveredFks(
+  modelFields: Record<string, FieldMeta>,
+  dataConfig: Record<string, true | unknown>,
+): Set<string> {
+  const covered = new Set<string>()
+
+  for (const [fieldName, value] of Object.entries(dataConfig)) {
+    const meta = modelFields[fieldName]
+    if (!meta || !meta.isRelation) continue
+
+    const fks = meta.relationFromFields
+    if (!fks || fks.length === 0) continue
+
+    if (!isPlainObject(value)) continue
+
+    const covers = Object.keys(value).some((op) =>
+      RELATION_OPS_COVERING_FK.has(op),
+    )
+    if (!covers) continue
+
+    for (const fk of fks) covered.add(fk)
+  }
+
+  return covered
+}
+
 export function validateCreateCompleteness(
   modelName: string,
   dataConfig: Record<string, true | unknown>,
@@ -103,6 +136,8 @@ export function validateCreateCompleteness(
     ? new Set(zodDefaultFields)
     : undefined
 
+  const relationCoveredFks = collectRelationCoveredFks(modelFields, dataConfig)
+
   for (const [fieldName, meta] of Object.entries(modelFields)) {
     if (meta.isRelation) continue
     if (meta.isUpdatedAt) continue
@@ -110,10 +145,11 @@ export function validateCreateCompleteness(
     if (!meta.isRequired) continue
     if (fieldName in dataConfig) continue
     if (scopeFks.has(fieldName)) continue
+    if (relationCoveredFks.has(fieldName)) continue
     if (zodDefaultSet && zodDefaultSet.has(fieldName)) continue
 
     throw new ShapeError(
-      `Required field "${fieldName}" on model "${modelName}" is missing from create data shape, has no default, and is not a scope FK`,
+      `Required field "${fieldName}" on model "${modelName}" is missing from create data shape, has no default, is not a scope FK, and is not covered by a relation write in the shape`,
     )
   }
 }

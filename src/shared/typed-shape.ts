@@ -14,6 +14,7 @@ export interface FieldMetaConst {
   readonly isEnum?: boolean
   readonly isUnique?: boolean
   readonly isUnsupported?: boolean
+  readonly relationFromFields?: readonly string[]
 }
 
 export interface UniqueConstraintConst {

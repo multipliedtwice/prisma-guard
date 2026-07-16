@@ -11,6 +11,7 @@ export interface FieldMeta {
   isEnum?: boolean
   isUnique?: boolean
   isUnsupported?: boolean
+  relationFromFields?: readonly string[]
 }
 
 export interface GuardLogger {

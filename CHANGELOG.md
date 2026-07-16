@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.30.0...v1.31.0) (2026-07-16)
+
+
+### Features
+
+* add relationFromFields to FieldMeta and enhance validation for relation covered foreign keys ([e5f9c01](https://github.com/multipliedtwice/prisma-guard/commit/e5f9c01fd25f3616347c361f7c4989a0304811af))
+
 # [1.30.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.29.0...v1.30.0) (2026-07-06)
 
 

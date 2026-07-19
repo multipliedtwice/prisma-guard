@@ -1121,7 +1121,7 @@ The return value is:
 | `shape` | The concrete resolved guard shape after caller matching and dynamic shape execution |
 | `body` | The normalized request body. Omitted input becomes `{}` |
 | `effectiveReadBody` | The body used for read planning. If the body has no `select` or `include`, the shape's default read projection is applied |
-| `matchedKey` | The selected named-shape key, such as `default`, `admin`, or `/user/me` |
+| `matchedKey` | The selected declared key, such as `default`, `admin`, or `/user/:id`. For parameterized callers this is the pattern key, not the concrete caller value |
 | `wasDynamic` | `true` when the matched shape was a function and was executed with guard context |
 
 `resolve()` uses the same guard extension context and caller selection path as `.findMany()`, `.findFirst()`, and the other guarded methods. If the shape is context-dependent, the shape function is called with the current guard context.
@@ -1915,22 +1915,40 @@ The `default` fallback works consistently across both `.guard()` and `guard.quer
 
 ### Note for generated route configs
 
-The direct `.guard({ where: ... })` form is still valid in the runtime API. Generated route configs from `prisma-generator-express`, however, type operation `shape` as a named shape map. For a single generated-route shape, put it under `default`:
+The direct runtime API accepts all three guard input forms:
+
+- one direct guard shape
+- one context-dependent shape function
+- a named shape map
+
+`prisma-generator-express` mirrors those forms under an operation's `shape` property. It also provides a `variants` descriptor API when each named shape needs its own route hooks:
 
 ```ts
 const projectConfig = {
   findMany: {
-    shape: {
+    before: [authenticate],
+    variants: {
+      admin: {
+        shape: {
+          where: { title: { contains: true }, status: { equals: true } },
+          take: { max: 100 },
+        },
+        before: [requireAdmin],
+      },
       default: {
-        where: { title: { contains: true } },
-        take: { max: 50, default: 20 },
+        shape: {
+          where: { title: { contains: true } },
+          take: { max: 20, default: 10 },
+        },
       },
     },
   },
 }
 ```
 
-Additional keys such as `admin`, `public`, or path patterns are caller-routed variants. Reserved shape keys such as `where`, `data`, `include`, and `select` cannot be used as caller keys.
+Within one generated operation, `shape` and `variants` cannot both be defined. Both may be omitted when the operation only needs operation-wide hooks or pagination. Each `variants[key].shape` is one direct shape or one context-dependent shape function; it is not another nested named map.
+
+Use `shape` when only guard routing is needed. Use `variants` when hooks need to differ by the matched named shape.
 
 ### Caller resolution order
 
@@ -1959,16 +1977,50 @@ await prisma.project.guard({ where: { ... } }).findMany(req.body)
 The `caller` key in the context object is not used for scope injection — it is only used for shape routing. Scope roots are identified by matching context keys against `@scope-root` model names.
 
 ### Parameterized caller patterns
+
 ```text
 /org/:orgId/users
 /org/:orgId/users/:userId
 ```
 
-Matching is case-sensitive. Exact matches are checked first. If no exact match is found, parameterized patterns are evaluated. Parameters are routing-only and are not extracted into context.
+Matching is case-sensitive. A parameter segment starts with `:` and matches exactly one path segment. Segment counts must be equal. Parameters are routing-only and are not extracted into context.
+
+Caller routing uses this precedence:
+
+1. Reject any named key that collides with a reserved guard shape key.
+2. If caller is not a string, use `default` when present; otherwise throw the missing-caller `CallerError`.
+3. If caller is blank or whitespace-only, skip exact and parameterized matching. Use `default` when present; otherwise throw unknown-caller `CallerError`.
+4. A non-blank exact key match wins immediately.
+5. If there is no exact match, evaluate parameterized patterns.
+6. One matching pattern selects that declared pattern key.
+7. Multiple matching patterns throw an ambiguous-caller `CallerError` listing every match.
+8. With no match, use `default` when present; otherwise throw unknown-caller `CallerError`.
+
+Exact matching therefore wins over a pattern that would also match:
+
+```ts
+const shapes = {
+  'customer/123': exactShape,
+  'customer/:id': parameterizedShape,
+}
+
+// Selects "customer/123", not "customer/:id".
+await prisma.order.guard(shapes, 'customer/123').findMany()
+```
+
+For a parameterized caller, `matchedKey` is the declared pattern key. A caller of `customer/123` matched by `customer/:id` produces `matchedKey === 'customer/:id'`. This is the key used for shape memoization and returned by `resolve()`.
 
 ### Fail-closed behavior
 
-If `caller` is missing or doesn't match any pattern and no `default` key exists, the request is rejected with a `CallerError`. If a caller matches multiple parameterized patterns, it is also rejected with a `CallerError`.
+Named routing fails closed:
+
+- A non-string caller with no `default` throws the missing-caller `CallerError`.
+- A blank or whitespace-only caller never matches a blank key or a parameterized key. It uses `default` or throws unknown-caller `CallerError`.
+- An unmatched caller uses `default` or throws unknown-caller `CallerError`.
+- Multiple matching parameterized patterns throw ambiguous-caller `CallerError`.
+- A caller key that collides with a reserved shape key throws `ShapeError`.
+
+The same precedence and error behavior apply to `.guard()` and `guard.query().parse()`.
 
 If a request body contains a `caller` field when using named shapes, it is rejected with a `CallerError` that directs the developer to use the second argument to `.guard()` or the context function instead.
 
@@ -2739,5 +2791,3 @@ Possible future improvements:
 ## License
 
 MIT
-
-

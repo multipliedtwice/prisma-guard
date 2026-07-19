@@ -1,7 +1,10 @@
 import type { GuardInput, GuardShape, ShapeOrFn } from '../shared/types.js'
 import { ShapeError, CallerError } from '../shared/errors.js'
 import { GUARD_SHAPE_KEYS } from '../shared/constants.js'
-import { matchCallerPattern } from '../shared/match-caller.js'
+import {
+  resolveGuardVariantKey,
+  type GuardVariantResolution,
+} from '../shared/guard-variant-routing.js'
 import { isPlainObject } from '../shared/utils.js'
 import { validateContext } from './policy.js'
 
@@ -67,6 +70,39 @@ function resolveDynamicShape(
   return result
 }
 
+function throwVariantResolution(
+  resolution: Extract<GuardVariantResolution, { ok: false }>,
+): never {
+  const keys = resolution.keys.map((key) => `"${key}"`).join(', ')
+
+  if (resolution.code === 'reserved-key') {
+    throw new ShapeError(
+      `Caller key "${resolution.key}" collides with reserved guard shape key. Rename the caller path.`,
+    )
+  }
+
+  if (resolution.code === 'missing-caller') {
+    throw new CallerError(
+      `Missing caller. This guard uses named shape routing with keys: ${keys}. ` +
+        `Provide caller via guard(input, caller).`,
+    )
+  }
+
+  if (resolution.code === 'ambiguous-caller') {
+    const matches = (resolution.matches ?? [])
+      .map((pattern) => `"${pattern}"`)
+      .join(', ')
+
+    throw new CallerError(
+      `Ambiguous caller "${resolution.caller}" matches multiple patterns: ${matches}`,
+    )
+  }
+
+  throw new CallerError(
+    `Unknown caller: "${resolution.caller}". Allowed: ${keys}`,
+  )
+}
+
 function resolveNamedShape(
   input: Record<string, ShapeOrFn<any>>,
   body: Record<string, unknown>,
@@ -75,40 +111,20 @@ function resolveNamedShape(
 ): ResolvedShape {
   assertNoCallerInBody(body)
 
-  const caller = explicitCaller
-  const keys = Object.keys(input)
+  const resolution = resolveGuardVariantKey({
+    kind: 'named',
+    keys: Object.keys(input),
+    caller: explicitCaller,
+    reservedKeys: GUARD_SHAPE_KEYS,
+  })
 
-  for (const key of keys) {
-    if (GUARD_SHAPE_KEYS.has(key)) {
-      throw new ShapeError(
-        `Caller key "${key}" collides with reserved guard shape key. Rename the caller path.`,
-      )
-    }
-  }
+  if (!resolution.ok) throwVariantResolution(resolution)
 
-  if (typeof caller !== 'string') {
-    if ('default' in input) {
-      return resolveShapeEntry(input.default, body, contextFn, 'default')
-    }
-
-    throw new CallerError(
-      `Missing caller. This guard uses named shape routing with keys: ${keys.map((k) => `"${k}"`).join(', ')}. ` +
-        `Provide caller via guard(input, caller).`,
-    )
-  }
-
-  const matched = matchCallerPattern(keys, caller)
-
-  if (matched) {
-    return resolveShapeEntry(input[matched], body, contextFn, matched)
-  }
-
-  if ('default' in input) {
-    return resolveShapeEntry(input.default, body, contextFn, 'default')
-  }
-
-  throw new CallerError(
-    `Unknown caller: "${caller}". Allowed: ${keys.map((k) => `"${k}"`).join(', ')}`,
+  return resolveShapeEntry(
+    input[resolution.key],
+    body,
+    contextFn,
+    resolution.key,
   )
 }
 

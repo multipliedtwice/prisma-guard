@@ -11,7 +11,10 @@ import type {
 } from "../shared/types.js";
 import { ShapeError, CallerError } from "../shared/errors.js";
 import { SHAPE_CONFIG_KEYS } from "../shared/constants.js";
-import { matchCallerPattern } from "../shared/match-caller.js";
+import {
+  resolveGuardVariantKey,
+  type GuardVariantResolution,
+} from "../shared/guard-variant-routing.js";
 import { isPlainObject, coerceToArray } from "../shared/utils.js";
 import { requireContext } from "./policy.js";
 import { createWhereBuilder } from "./query-builder-where.js";
@@ -452,36 +455,37 @@ export function createQueryBuilder(
     };
   }
 
-  function matchCaller<TCtx>(
-    shapes: Record<string, ShapeOrFn<TCtx>>,
-    caller: string,
-  ): { key: string; shape: ShapeOrFn<TCtx> } | null {
-    const matched = matchCallerPattern(Object.keys(shapes), caller);
-    if (!matched) return null;
+  function throwQueryVariantResolution(
+    resolution: Extract<GuardVariantResolution, { ok: false }>,
+  ): never {
+    const keys = resolution.keys.map((key) => `"${key}"`).join(", ");
 
-    return { key: matched, shape: shapes[matched] };
-  }
-
-  function resolveDefaultShape<TCtx>(
-    config: Record<string, ShapeOrFn<TCtx>>,
-    model: string,
-    method: QueryMethod,
-    normalizedBody: unknown,
-    opts: { ctx?: TCtx; caller?: string } | undefined,
-    builtCache: Map<string, BuiltShape>,
-    isUnique: boolean,
-  ): Record<string, unknown> {
-    const shapeOrFn = config.default;
-    let built: BuiltShape;
-
-    if (typeof shapeOrFn === "function") {
-      const resolved = resolveAndValidateShape(shapeOrFn, opts?.ctx);
-      built = buildShapeZodSchema(model, method, resolved);
-    } else {
-      built = builtCache.get("default")!;
+    if (resolution.code === "reserved-key") {
+      throw new ShapeError(
+        `Caller key "${resolution.key}" collides with reserved shape config key. Rename the caller path.`,
+      );
     }
 
-    return applyBuiltShape(built, normalizedBody, isUnique);
+    if (resolution.code === "missing-caller") {
+      throw new CallerError(
+        `Missing caller. This query uses named shape routing with keys: ${keys}. ` +
+          `Provide caller via opts.caller.`,
+      );
+    }
+
+    if (resolution.code === "ambiguous-caller") {
+      const matches = (resolution.matches ?? [])
+        .map((pattern) => `"${pattern}"`)
+        .join(", ");
+
+      throw new CallerError(
+        `Ambiguous caller "${resolution.caller}" matches multiple patterns: ${matches}`,
+      );
+    }
+
+    throw new CallerError(
+      `Unknown caller: "${resolution.caller}". Allowed: ${keys}`,
+    );
   }
 
   function buildQuerySchema<TCtx>(
@@ -500,12 +504,16 @@ export function createQueryBuilder(
     }
 
     if (!isSingle) {
-      for (const key of Object.keys(config as Record<string, unknown>)) {
-        if (SHAPE_CONFIG_KEYS.has(key)) {
-          throw new ShapeError(
-            `Caller key "${key}" collides with reserved shape config key. Rename the caller path.`,
-          );
-        }
+      const keys = Object.keys(config as Record<string, unknown>);
+      const validation = resolveGuardVariantKey({
+        kind: "named",
+        keys,
+        caller: undefined,
+        reservedKeys: SHAPE_CONFIG_KEYS,
+      });
+
+      if (!validation.ok && validation.code === "reserved-key") {
+        throwQueryVariantResolution(validation);
       }
 
       for (const [key, shapeOrFn] of Object.entries(
@@ -552,56 +560,22 @@ export function createQueryBuilder(
           }
 
           const namedConfig = config as Record<string, ShapeOrFn<TCtx>>;
-          const caller = opts?.caller;
+          const resolution = resolveGuardVariantKey({
+            kind: "named",
+            keys: Object.keys(namedConfig),
+            caller: opts?.caller,
+            reservedKeys: SHAPE_CONFIG_KEYS,
+          });
 
-          if (typeof caller !== "string") {
-            if ("default" in namedConfig) {
-              return resolveDefaultShape(
-                namedConfig,
-                model,
-                method,
-                normalizedBody,
-                opts,
-                builtCache,
-                isUnique,
-              );
-            }
+          if (!resolution.ok) throwQueryVariantResolution(resolution);
 
-            const allowed = Object.keys(namedConfig);
+          const shapeOrFn = namedConfig[resolution.key];
 
-            throw new CallerError(
-              `Missing caller. This query uses named shape routing with keys: ${allowed.map((k) => `"${k}"`).join(", ")}. ` +
-                `Provide caller via opts.caller.`,
-            );
-          }
-
-          const matched = matchCaller(namedConfig, caller);
-
-          if (!matched) {
-            if ("default" in namedConfig) {
-              return resolveDefaultShape(
-                namedConfig,
-                model,
-                method,
-                normalizedBody,
-                opts,
-                builtCache,
-                isUnique,
-              );
-            }
-
-            const allowed = Object.keys(namedConfig);
-
-            throw new CallerError(
-              `Unknown caller: "${caller}". Allowed: ${allowed.map((k) => `"${k}"`).join(", ")}`,
-            );
-          }
-
-          if (typeof matched.shape === "function") {
-            const resolved = resolveAndValidateShape(matched.shape, opts?.ctx);
+          if (typeof shapeOrFn === "function") {
+            const resolved = resolveAndValidateShape(shapeOrFn, opts?.ctx);
             built = buildShapeZodSchema(model, method, resolved);
           } else {
-            built = builtCache.get(matched.key)!;
+            built = builtCache.get(resolution.key)!;
           }
         }
 

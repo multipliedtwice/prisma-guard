@@ -1,3 +1,10 @@
+# [1.32.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.31.0...v1.32.0) (2026-07-19)
+
+
+### Features
+
+* implement guard variant routing and replace matchCallerPattern with resolveGuardVariantKey ([2cfa7ef](https://github.com/multipliedtwice/prisma-guard/commit/2cfa7efa5b93238f8900ed56ecdcc2739845d89f))
+
 # [1.31.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.30.0...v1.31.0) (2026-07-16)
 
 

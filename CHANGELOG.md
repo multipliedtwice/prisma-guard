@@ -1,3 +1,10 @@
+## [1.32.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.32.0...v1.32.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* forced nullable fields ([f9e036c](https://github.com/multipliedtwice/prisma-guard/commit/f9e036cf70468124dcba1d751185c63989cbd54f))
+
 # [1.32.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.31.0...v1.32.0) (2026-07-19)
 
 

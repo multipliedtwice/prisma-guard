@@ -24,6 +24,7 @@ import {
   applyBuiltShape,
   EMPTY_WHERE_FORCED,
   hasWhereForced,
+  validateResolvedUniqueWhere,
   validateUniqueEquality,
 } from "./query-builder-forced.js";
 import type {
@@ -579,7 +580,23 @@ export function createQueryBuilder(
           }
         }
 
-        return applyBuiltShape(built, normalizedBody, isUnique);
+        const result = applyBuiltShape(
+          built,
+          normalizedBody,
+          isUnique,
+          model,
+        );
+
+        if (isUnique && result.where) {
+          validateResolvedUniqueWhere(
+            model,
+            result.where as Record<string, unknown>,
+            method,
+            uniqueMap,
+          );
+        }
+
+        return result;
       },
     };
   }

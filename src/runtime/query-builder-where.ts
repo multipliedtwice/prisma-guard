@@ -575,13 +575,30 @@ export function createWhereBuilder(
     )
   }
 
+  function buildUniqueWhereFieldSchema(
+    fieldMeta: FieldMeta,
+    allowNullableFilter: boolean,
+  ): z.ZodTypeAny {
+    const schema = buildDirectScalarSchema(fieldMeta, enumMap, scalarBase)
+
+    if (allowNullableFilter && !fieldMeta.isRequired) {
+      return schema.nullable()
+    }
+
+    return schema
+  }
+
   function parseForcedUniqueValue(
     model: string,
     fieldName: string,
     fieldMeta: FieldMeta,
     value: unknown,
+    allowNullableFilter: boolean,
   ): unknown {
-    const schema = buildDirectScalarSchema(fieldMeta, enumMap, scalarBase)
+    const schema = buildUniqueWhereFieldSchema(
+      fieldMeta,
+      allowNullableFilter,
+    )
     const actual = isForcedValue(value) ? value.value : value
 
     try {
@@ -684,10 +701,9 @@ export function createWhereBuilder(
             )
           }
 
-          const directSchema = buildDirectScalarSchema(
+          const directSchema = buildUniqueWhereFieldSchema(
             fieldMeta,
-            enumMap,
-            scalarBase,
+            false,
           )
 
           if (fieldValue === true) {
@@ -698,6 +714,7 @@ export function createWhereBuilder(
               fieldName,
               fieldMeta,
               fieldValue,
+              false,
             )
           }
         }
@@ -749,7 +766,7 @@ export function createWhereBuilder(
         )
       }
 
-      const directSchema = buildDirectScalarSchema(fieldMeta, enumMap, scalarBase)
+      const directSchema = buildUniqueWhereFieldSchema(fieldMeta, true)
 
       if (value === true) {
         fieldSchemas[key] = directSchema
@@ -761,6 +778,7 @@ export function createWhereBuilder(
         key,
         fieldMeta,
         value,
+        true,
       )
       forcedOnlyKeys.add(key)
     }

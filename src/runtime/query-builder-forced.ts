@@ -552,13 +552,16 @@ function resolvedWhereCoversConstraint(
   constraint: UniqueConstraintLike,
 ): boolean {
   if (constraint.fields.length === 1) {
-    return constraint.fields[0] in where
+    const value = where[constraint.fields[0]]
+    return value !== null && value !== undefined
   }
 
   const value = where[constraint.selector]
   if (!isPlainObject(value)) return false
 
-  return constraint.fields.every((field) => field in value)
+  return constraint.fields.every(
+    (field) => value[field] !== null && value[field] !== undefined,
+  )
 }
 
 export function validateResolvedUniqueWhere(
@@ -601,19 +604,19 @@ function assertDirectUniqueShapeValue(
     }
   }
 
-  if (isForcedValue(value)) return
+  const actual = isForcedValue(value) ? value.value : value
 
-  if (isPlainObject(value)) {
-    const keys = Object.keys(value)
+  if (isPlainObject(actual)) {
+    const keys = Object.keys(actual)
 
     throw new ShapeError(
       `Invalid unique where shape for "${model ?? 'unknown'}.${field}". Prisma WhereUniqueInput does not accept filter operator objects${keys.length ? `: ${keys.join(', ')}` : ''}. Use { ${field}: true } in guard shape and { ${field}: value } in request args.`,
     )
   }
 
-  if (value === null || value === undefined) {
+  if (actual === null || actual === undefined) {
     throw new ShapeError(
-      `Invalid unique where shape for "${model ?? 'unknown'}.${field}". Unique fields must use true or a forced value.`,
+      `Invalid unique where shape for "${model ?? 'unknown'}.${field}". Unique fields must use true or a forced non-null value.`,
     )
   }
 }
@@ -636,9 +639,10 @@ function shapeCoversConstraint(
 
   if (!(constraint.selector in where)) return false
 
-  const selectorValue = where[constraint.selector]
-
-  if (isForcedValue(selectorValue)) return true
+  const rawSelectorValue = where[constraint.selector]
+  const selectorValue = isForcedValue(rawSelectorValue)
+    ? rawSelectorValue.value
+    : rawSelectorValue
 
   if (!isPlainObject(selectorValue)) {
     throw new ShapeError(

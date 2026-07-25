@@ -1,3 +1,10 @@
+# [1.33.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.32.1...v1.33.0) (2026-07-25)
+
+
+### Features
+
+* enhance emitClient and emitTypedShapes for import path safety and identifier collision prevention ([5738233](https://github.com/multipliedtwice/prisma-guard/commit/573823360bfa0e83518b2040edb653e99416f07b))
+
 ## [1.32.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.32.0...v1.32.1) (2026-07-21)
 
 

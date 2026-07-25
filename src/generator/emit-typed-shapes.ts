@@ -18,15 +18,18 @@ export function emitTypedShapes(
 ): string {
   const indexImport = withImportStyle('./index', importStyle)
 
-  const header = `import type { TYPE_MAP, UNIQUE_MAP } from '${indexImport}'
+  // Imported helpers are prefixed with "_" so they can never collide with the
+  // emitted `${model}Projection` / `${model}GuardShape` / ... aliases. Prisma
+  // model names must start with a letter, so a leading underscore is safe.
+  const header = `import type { TYPE_MAP, UNIQUE_MAP } from ${JSON.stringify(indexImport)}
 import type {
-  TypedGuardShape,
-  OperationShape,
-  ShapeInput,
-  TypedProjection,
-  TypedInclude,
-  TypedCountSelect,
-} from '${runtimeImportPath}'
+  TypedGuardShape as _TypedGuardShape,
+  OperationShape as _OperationShape,
+  ShapeInput as _ShapeInput,
+  TypedProjection as _TypedProjection,
+  TypedInclude as _TypedInclude,
+  TypedCountSelect as _TypedCountSelect,
+} from ${JSON.stringify(runtimeImportPath)}
 
 type TM = typeof TYPE_MAP
 type UM = typeof UNIQUE_MAP
@@ -37,19 +40,19 @@ type UM = typeof UNIQUE_MAP
     .map((model) => {
       const m = model.name
 
-      const projAlias = `export type ${m}Select = TypedProjection<TM, '${m}', ${depth}, UM>
+      const projAlias = `export type ${m}Select = _TypedProjection<TM, '${m}', ${depth}, UM>
 export type ${m}Projection = ${m}Select
-export type ${m}Include = TypedInclude<TM, '${m}', ${depth}, UM>
-export type ${m}CountSelect = TypedCountSelect<TM, '${m}'>
+export type ${m}Include = _TypedInclude<TM, '${m}', ${depth}, UM>
+export type ${m}CountSelect = _TypedCountSelect<TM, '${m}'>
 `
 
-      const guardAlias = `export type ${m}GuardShape = TypedGuardShape<TM, '${m}', ${depth}, UM>
+      const guardAlias = `export type ${m}GuardShape = _TypedGuardShape<TM, '${m}', ${depth}, UM>
 `
 
       const opAliases = OPERATIONS.map((op) => {
         const c = cap(op)
-        return `export type ${m}${c}Shape = OperationShape<TM, '${m}', '${op}', ${depth}, UM>
-export type ${m}${c}ShapeInput<TCtx = unknown> = ShapeInput<${m}${c}Shape, TCtx>
+        return `export type ${m}${c}Shape = _OperationShape<TM, '${m}', '${op}', ${depth}, UM>
+export type ${m}${c}ShapeInput<TCtx = unknown> = _ShapeInput<${m}${c}Shape, TCtx>
 `
       }).join('')
 

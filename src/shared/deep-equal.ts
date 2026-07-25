@@ -1,5 +1,21 @@
 import { isPlainObject } from './utils.js'
 
+type DecimalLike = {
+  equals?: (other: unknown) => unknown
+  toFixed: (...args: unknown[]) => unknown
+  toNumber: (...args: unknown[]) => unknown
+  toString: () => string
+}
+
+function isDecimalLike(v: unknown): v is DecimalLike {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof (v as DecimalLike).toFixed === 'function' &&
+    typeof (v as DecimalLike).toNumber === 'function'
+  )
+}
+
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (a === null || b === null) return false
@@ -21,6 +37,25 @@ export function deepEqual(a: unknown, b: unknown): boolean {
     return a.source === b.source && a.flags === b.flags
   }
   if (a instanceof RegExp || b instanceof RegExp) return false
+
+  if (a instanceof Uint8Array || b instanceof Uint8Array) {
+    if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false
+    if (a.byteLength !== b.byteLength) return false
+    for (let i = 0; i < a.byteLength; i++) {
+      if (a[i] !== b[i]) return false
+    }
+    return true
+  }
+
+  if (isDecimalLike(a) || isDecimalLike(b)) {
+    if (!isDecimalLike(a) || !isDecimalLike(b)) return false
+    try {
+      if (typeof a.equals === 'function') return a.equals(b) === true
+      return a.toString() === b.toString()
+    } catch {
+      return false
+    }
+  }
 
   if (Array.isArray(a)) {
     if (!Array.isArray(b)) return false

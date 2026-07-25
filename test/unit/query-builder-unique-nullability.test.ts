@@ -405,3 +405,39 @@ describe("non-filter direct scalar paths remain non-nullable", () => {
     ).toThrow(/requires resolved where to cover a unique constraint/);
   });
 });
+
+describe("multiple single-field unique selectors", () => {
+  function findUniqueSchema() {
+    return makeQueryBuilder().buildQuerySchema("Assignment", "findUnique", {
+      where: {
+        id: true,
+        externalId: true,
+      },
+    });
+  }
+
+  it("accepts any single allowed selector", () => {
+    const schema = findUniqueSchema();
+
+    expect(schema.parse({ where: { id: "a1" } })).toEqual({
+      where: { id: "a1" },
+    });
+    expect(schema.parse({ where: { externalId: "ext-1" } })).toEqual({
+      where: { externalId: "ext-1" },
+    });
+  });
+
+  it("accepts more than one selector at once", () => {
+    const schema = findUniqueSchema();
+
+    expect(
+      schema.parse({ where: { id: "a1", externalId: "ext-1" } }),
+    ).toEqual({ where: { id: "a1", externalId: "ext-1" } });
+  });
+
+  it("rejects a where that provides no selector", () => {
+    const schema = findUniqueSchema();
+
+    expect(() => schema.parse({ where: {} })).toThrow();
+  });
+});

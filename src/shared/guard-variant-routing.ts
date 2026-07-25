@@ -38,7 +38,15 @@ function matchVariantPatterns(
     let matchesCaller = true
 
     for (let index = 0; index < patternParts.length; index++) {
-      if (patternParts[index].startsWith(':')) continue
+      if (patternParts[index].startsWith(':')) {
+        // A `:param` placeholder must match a non-empty segment; an empty
+        // segment (e.g. caller "org/") is not a valid parameter value.
+        if (callerParts[index].length === 0) {
+          matchesCaller = false
+          break
+        }
+        continue
+      }
       if (patternParts[index] !== callerParts[index]) {
         matchesCaller = false
         break

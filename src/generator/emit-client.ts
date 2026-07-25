@@ -40,11 +40,15 @@ export function emitClient(
     prismaClientKind,
   )
 
-  return `import type { PrismaClient } from '${clientImport}'
-import type { GuardInput, GuardedModel } from '${runtimeImportPath}'
-import { createGuard } from '${runtimeImportPath}'
-import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from '${indexImport}'
-import type { ScopeRoot } from '${indexImport}'
+  const clientLit = JSON.stringify(clientImport)
+  const runtimeLit = JSON.stringify(runtimeImportPath)
+  const indexLit = JSON.stringify(indexImport)
+
+  return `import type { PrismaClient } from ${clientLit}
+import type { GuardInput, GuardedModel } from ${runtimeLit}
+import { createGuard } from ${runtimeLit}
+import { SCOPE_MAP, TYPE_MAP, ENUM_MAP, ZOD_CHAINS, GUARD_CONFIG, UNIQUE_MAP, ZOD_DEFAULTS } from ${indexLit}
+import type { ScopeRoot } from ${indexLit}
 
 ${emitGuardModelExtension(dmmf)}
 export const guard = createGuard<typeof TYPE_MAP, ScopeRoot, GuardModelExtension>({

@@ -56,6 +56,44 @@ describe('scope-extension coverage: validateScopeValue', () => {
       }),
     ).toThrow(PolicyError)
   })
+
+  it('throws PolicyError for a non-primitive (object) scope value', () => {
+    const handler = makeExtension(() => ({ User: {} as unknown as string }))
+    expect(() =>
+      handler({
+        model: 'Post',
+        operation: 'findMany',
+        args: {},
+        query: async () => [],
+      }),
+    ).toThrow(PolicyError)
+  })
+})
+
+describe('scope-extension coverage: onMissingScopeContext boundary', () => {
+  it('fails closed on reads when the config field is absent', () => {
+    const handler = makeExtension(
+      () => ({}),
+      { findUniqueMode: 'verify' } as GuardGeneratedConfig,
+    )
+    expect(() =>
+      handler({
+        model: 'Post',
+        operation: 'findMany',
+        args: {},
+        query: async () => [],
+      }),
+    ).toThrow(PolicyError)
+  })
+
+  it('rejects an invalid onMissingScopeContext value at construction', () => {
+    expect(() =>
+      makeExtension(() => ({ User: 'u1' }), {
+        onMissingScopeContext: 'bogus',
+        findUniqueMode: 'verify',
+      } as unknown as GuardGeneratedConfig),
+    ).toThrow(ShapeError)
+  })
 })
 
 describe('scope-extension coverage: handleFindUnique edge cases', () => {

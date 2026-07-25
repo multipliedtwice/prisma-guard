@@ -44,7 +44,9 @@ export interface WhereBuiltResult {
 }
 
 export interface UniqueWhereBuiltResult {
-  schema: z.ZodObject<any> | null
+  // Usually a ZodObject, but a multi-selector unique where is refined to
+  // "at least one selector present", which yields a ZodEffects wrapper.
+  schema: z.ZodTypeAny | null
   forced: WhereForced
   forcedOnlyKeys: Set<string>
 }
@@ -783,11 +785,35 @@ export function createWhereBuilder(
       forcedOnlyKeys.add(key)
     }
 
+    const selectorKeys = Object.keys(fieldSchemas)
+    let schema: z.ZodTypeAny | null
+    if (selectorKeys.length === 0) {
+      schema = null
+    } else if (selectorKeys.length === 1) {
+      schema = z.object(fieldSchemas).strict()
+    } else {
+      // Multiple unique selectors: Prisma's WhereUniqueInput accepts any one of
+      // them, so each is optional and the client must provide at least one
+      // (unless a forced selector already covers the constraint server-side).
+      const optionalSchemas: Record<string, z.ZodTypeAny> = {}
+      for (const [k, s] of Object.entries(fieldSchemas)) {
+        optionalSchemas[k] = s.optional()
+      }
+      const objectSchema = z.object(optionalSchemas).strict()
+      schema =
+        Object.keys(forcedConditions).length > 0
+          ? objectSchema
+          : objectSchema.refine(
+              (v: Record<string, unknown>) =>
+                selectorKeys.some((k) => v[k] !== undefined),
+              {
+                message: `Unique where for model "${model}" must specify at least one selector: ${selectorKeys.join(', ')}`,
+              },
+            )
+    }
+
     return {
-      schema:
-        Object.keys(fieldSchemas).length > 0
-          ? z.object(fieldSchemas).strict()
-          : null,
+      schema,
       forced: {
         conditions: forcedConditions,
         relations: {},

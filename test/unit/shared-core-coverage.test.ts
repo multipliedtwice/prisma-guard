@@ -118,6 +118,45 @@ describe("deepClone", () => {
     expect(deepClone(fn)).toBe(fn);
     expect(deepClone(symbol)).toBe(symbol);
   });
+
+  it("copies Buffer bytes without aliasing the source memory", () => {
+    const BufferCtor = (globalThis as unknown as {
+      Buffer: { from(a: number[]): Uint8Array };
+    }).Buffer;
+    const buf = BufferCtor.from([1, 2, 3]);
+    const result = deepClone(buf) as Uint8Array;
+
+    expect(result).not.toBe(buf);
+    expect(Array.from(result)).toEqual([1, 2, 3]);
+
+    result[0] = 9;
+    expect(buf[0]).toBe(1);
+  });
+
+  it("preserves __proto__ as an own property without polluting the prototype", () => {
+    const input = JSON.parse('{"__proto__": {"polluted": true}}');
+
+    const result = deepClone(input);
+
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    const desc = Object.getOwnPropertyDescriptor(result, "__proto__");
+    expect(desc?.value).toEqual({ polluted: true });
+  });
+
+  it("clones shared sub-references independently (no aliasing across keys)", () => {
+    const shared = { flag: true };
+    const input = { a: shared, b: shared };
+
+    const result = deepClone(input);
+
+    expect(result.a).toEqual({ flag: true });
+    expect(result.b).toEqual({ flag: true });
+    expect(result.a).not.toBe(result.b);
+
+    result.a.flag = false;
+    expect(result.b.flag).toBe(true);
+  });
 });
 
 describe("deepEqual", () => {
@@ -182,6 +221,34 @@ describe("deepEqual", () => {
 
     expect(deepEqual(new Box("x"), new Box("x"))).toBe(false);
     expect(deepEqual(new Map([["a", 1]]), new Map([["a", 1]]))).toBe(false);
+  });
+
+  it("compares byte arrays by content", () => {
+    expect(
+      deepEqual(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3])),
+    ).toBe(true);
+    expect(
+      deepEqual(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4])),
+    ).toBe(false);
+    expect(deepEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3]))).toBe(
+      false,
+    );
+    expect(deepEqual(new Uint8Array([1]), { 0: 1 })).toBe(false);
+  });
+
+  it("compares Decimal-like objects by value", () => {
+    const decimal = (v: string) => ({
+      toFixed: () => v,
+      toNumber: () => Number(v),
+      toString: () => v,
+      equals(other: { toString(): string }) {
+        return other.toString() === v;
+      },
+    });
+
+    expect(deepEqual(decimal("1.5"), decimal("1.5"))).toBe(true);
+    expect(deepEqual(decimal("1.5"), decimal("2.5"))).toBe(false);
+    expect(deepEqual(decimal("1.5"), { value: "1.5" })).toBe(false);
   });
 });
 

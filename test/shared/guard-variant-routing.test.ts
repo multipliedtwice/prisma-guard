@@ -107,4 +107,12 @@ describe('resolveGuardVariantKey', () => {
       caller: 'seller',
     })
   })
+
+  it('does not match a parameterized segment against an empty caller segment', () => {
+    expect(named(['org/:id'], 'org/')).toMatchObject({
+      ok: false,
+      code: 'unknown-caller',
+      caller: 'org/',
+    })
+  })
 })

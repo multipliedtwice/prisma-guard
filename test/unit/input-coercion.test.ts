@@ -250,6 +250,12 @@ describe("wrapWithInputCoercion", () => {
         expect(result).toBe("3.14");
       });
 
+      it("accepts exponent notation with an explicit + sign", () => {
+        expect(schema.parse("1.5e+10")).toBe("1.5e+10");
+        expect(schema.parse("1.5e-10")).toBe("1.5e-10");
+        expect(schema.parse("1e+21")).toBe("1e+21");
+      });
+
       it("accepts Decimal-like objects", () => {
         const decimalObj = { toFixed: () => "3.14", toNumber: () => 3.14 };
         expect(schema.parse(decimalObj)).toBe(decimalObj);

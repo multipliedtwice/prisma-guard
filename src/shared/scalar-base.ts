@@ -70,7 +70,7 @@ function isJsonSafe(value: unknown): boolean {
   return true;
 }
 
-const DECIMAL_REGEX = /^-?(\d+\.?\d*|\.\d+)([eE]-?\d+)?$/;
+const DECIMAL_REGEX = /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
 const decimalStringSchema = z
   .string()

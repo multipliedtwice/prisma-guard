@@ -115,6 +115,12 @@ function pickMissingFksFromResult(
 }
 
 function validateScopeValue(root: string, value: unknown): void {
+  const t = typeof value;
+  if (t !== "string" && t !== "number" && t !== "bigint") {
+    throw new PolicyError(
+      `Non-primitive scope value for root "${root}" (${t}). Only string, number, and bigint are accepted — an object or array here would silently become a Prisma filter and could bypass scope isolation.`,
+    );
+  }
   if (typeof value === "string" && value.length === 0) {
     throw new PolicyError(
       `Empty string scope value for root "${root}". This is almost certainly a bug in the context function.`,
@@ -172,6 +178,7 @@ function enforceDataScope(
 
 const VALID_FIND_UNIQUE_MODES = new Set(["verify", "reject"]);
 const VALID_ON_SCOPE_RELATION_WRITES = new Set(["error", "warn", "strip"]);
+const VALID_ON_MISSING_SCOPE_CONTEXT = new Set(["error", "warn", "ignore"]);
 
 export function createScopeExtension<TRoots extends string>(
   scopeMap: ScopeMap,
@@ -182,6 +189,9 @@ export function createScopeExtension<TRoots extends string>(
   const log: GuardLogger = logger ?? { warn: (msg) => console.warn(msg) };
   const findUniqueMode = guardConfig.findUniqueMode ?? "reject";
   const onScopeRelationWrite = guardConfig.onScopeRelationWrite ?? "error";
+  // Fail closed if the field is absent (e.g. a hand-built or legacy config):
+  // a missing scope root must never silently degrade a read to unscoped.
+  const onMissingScopeContext = guardConfig.onMissingScopeContext ?? "error";
 
   if (!VALID_FIND_UNIQUE_MODES.has(findUniqueMode)) {
     throw new ShapeError(
@@ -192,6 +202,12 @@ export function createScopeExtension<TRoots extends string>(
   if (!VALID_ON_SCOPE_RELATION_WRITES.has(onScopeRelationWrite)) {
     throw new ShapeError(
       `prisma-guard: Invalid onScopeRelationWrite "${onScopeRelationWrite}". Allowed: ${[...VALID_ON_SCOPE_RELATION_WRITES].join(", ")}`,
+    );
+  }
+
+  if (!VALID_ON_MISSING_SCOPE_CONTEXT.has(onMissingScopeContext)) {
+    throw new ShapeError(
+      `prisma-guard: Invalid onMissingScopeContext "${onMissingScopeContext}". Allowed: ${[...VALID_ON_MISSING_SCOPE_CONTEXT].join(", ")}`,
     );
   }
 
@@ -233,12 +249,12 @@ export function createScopeExtension<TRoots extends string>(
           operation === "upsert";
 
         if (missingRoots.length > 0) {
-          if (isMutation || guardConfig.onMissingScopeContext === "error") {
+          if (isMutation || onMissingScopeContext === "error") {
             throw new PolicyError(
               `prisma-guard: Missing scope context for model "${model}": roots ${missingRoots.map((r) => `"${r}"`).join(", ")} not provided. All scope roots must be present.`,
             );
           }
-          if (guardConfig.onMissingScopeContext === "warn") {
+          if (onMissingScopeContext === "warn") {
             log.warn(
               `prisma-guard: Missing scope context for model "${model}": roots ${missingRoots.map((r) => `"${r}"`).join(", ")} not provided. Read proceeding with partial scope.`,
             );

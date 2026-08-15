@@ -1,8 +1,7 @@
 import pkg from '@prisma/generator-helper'
 const { generatorHandler } = pkg
-import type { DMMF, GeneratorOptions } from '@prisma/generator-helper'
+import type { DMMF } from '@prisma/generator-helper'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
-import { relative } from 'path'
 import { z } from 'zod'
 import { emitClient } from './emit-client.js'
 import { emitScopeMap } from './emit-scope-map.js'
@@ -10,10 +9,7 @@ import { emitTypeMap } from './emit-type-map.js'
 import { emitTypedShapes } from './emit-typed-shapes.js'
 import { emitZodChains, emitZodDefaults } from './emit-zod-chains.js'
 import { emitGuardConfig } from './emit-guard-config.js'
-import {
-  resolveImportStyle,
-  type PrismaClientKind,
-} from './import-style.js'
+import { resolveImportStyle } from './import-style.js'
 
 const booleanConfig = z
   .enum(['true', 'false'])
@@ -54,68 +50,6 @@ function parseGeneratorConfig(raw: Record<string, unknown>): ResolvedConfig {
     .join('; ')
 
   throw new Error(`prisma-guard: Invalid generator config: ${issues}`)
-}
-
-function getProviderValue(provider: unknown): string {
-  if (typeof provider === 'string') return provider
-
-  if (provider && typeof provider === 'object' && 'value' in provider) {
-    const value = (provider as { value?: unknown }).value
-    if (typeof value === 'string') return value
-  }
-
-  return ''
-}
-
-function classifyPrismaProvider(provider: unknown): 'prisma-client-js' | 'prisma-client' | null {
-  const value = getProviderValue(provider)
-
-  if (value === 'prisma-client-js' || value.endsWith('/prisma-client-js')) {
-    return 'prisma-client-js'
-  }
-
-  if (value === 'prisma-client' || value.endsWith('/prisma-client')) {
-    return 'prisma-client'
-  }
-
-  return null
-}
-
-function normalizeImportPath(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
-    return '@prisma/client'
-  }
-  if (normalized.startsWith('.')) return normalized
-  return `./${normalized}`
-}
-
-function resolvePrismaClientImport(
-  options: GeneratorOptions,
-  guardOutput: string,
-): { path: string; kind: PrismaClientKind } {
-  let matched: { provider: 'prisma-client-js' | 'prisma-client'; output: string } | null = null
-
-  for (const generator of options.otherGenerators) {
-    const providerKind = classifyPrismaProvider(generator.provider)
-    if (!providerKind) continue
-
-    const output = generator.output?.value
-    if (!output) continue
-
-    matched = { provider: providerKind, output }
-    break
-  }
-
-  if (!matched) return { path: '@prisma/client', kind: 'package' }
-
-  const rel = relative(guardOutput, matched.output)
-  if (rel.length === 0) return { path: '@prisma/client', kind: 'package' }
-
-  return {
-    path: normalizeImportPath(rel),
-    kind: matched.provider,
-  }
 }
 
 generatorHandler({
@@ -162,15 +96,7 @@ generatorHandler({
 
     writeFileSync(`${output}/index.ts`, parts.join('\n'), 'utf-8')
 
-    const { path: prismaClientImport, kind: prismaClientKind } =
-      resolvePrismaClientImport(options, output)
-    const clientSource = emitClient(
-      dmmf,
-      prismaClientImport,
-      prismaClientKind,
-      importStyle,
-      cfg.runtimeImportPath,
-    )
+    const clientSource = emitClient(importStyle, cfg.runtimeImportPath)
     writeFileSync(`${output}/client.ts`, clientSource, 'utf-8')
 
     const shapesPath = `${output}/shapes.ts`

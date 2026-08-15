@@ -16,35 +16,12 @@ function dmmfWithModels(names: string[]): DMMF.Document {
 
 describe("emitClient import-path safety", () => {
   it("escapes a runtimeImportPath containing a quote instead of breaking the string literal", () => {
-    const output = emitClient(
-      dmmfWithModels(["User"]),
-      "@prisma/client",
-      "package",
-      "none",
-      "weird'path",
-    );
+    const output = emitClient("none", "weird'path");
 
     // The malicious path is emitted as a properly escaped string literal, not
     // spliced into raw single-quoted source.
     expect(output).toContain(`from ${JSON.stringify("weird'path")}`);
     expect(output).not.toContain("from 'weird'path'");
-  });
-
-  it("escapes a client import path containing a quote", () => {
-    const output = emitClient(
-      dmmfWithModels(["User"]),
-      "./o'brien/client",
-      "prisma-client",
-      "none",
-      "prisma-guard",
-    );
-
-    // The apostrophe is carried inside a well-formed double-quoted literal
-    // rather than terminating a single-quoted one.
-    expect(output).toMatch(
-      /import type \{ PrismaClient \} from "[^"\n]*o'brien[^"\n]*"/,
-    );
-    expect(output).not.toContain("from './o'brien");
   });
 });
 

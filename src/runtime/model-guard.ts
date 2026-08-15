@@ -1262,17 +1262,44 @@ export function createModelGuardExtension(config: {
     return wrapped;
   }
 
-  const extension: Record<
-    string,
-    { guard: (input: GuardInput, caller?: string) => any }
-  > = {};
-
-  for (const modelName of Object.keys(typeMap)) {
-    const key = toDelegateKey(modelName);
-
-    extension[key] = {
+  // ONE entry, not one per model. A member per model makes this object grow with
+  // the schema, and it rides inside Prisma's ExtArgs: a consumer with a large
+  // schema re-instantiates it through every args comparison and can exhaust
+  // TypeScript's instantiation-depth budget. That failure is reported against
+  // whatever file happens to tip it over, not against this package, so it is
+  // effectively undiagnosable downstream.
+  //
+  // The cost is that the model name is no longer captured in a per-model
+  // closure. It is read from the extension context Prisma binds as `this`:
+  // `this.$name` for the model, `this.$parent[key]` for the delegate, both
+  // resolved per call.
+  //
+  // model-guard-allmodels.test.ts covers the routing GIVEN such a context. It
+  // supplies that context itself, so it does not establish that Prisma binds
+  // one — only an extended client does, which is checked downstream.
+  const extension: {
+    $allModels: { guard: (input: GuardInput, caller?: string) => any };
+  } = {
+    $allModels: {
       guard(this: any, input: GuardInput, caller?: string) {
-        const modelDelegate = this.$parent[key];
+        const modelName: unknown = this?.$name;
+
+        // Fail loudly rather than guess. A guard() that cannot name its model
+        // would otherwise build a shape against the wrong table.
+        if (typeof modelName !== "string" || modelName.length === 0) {
+          throw new ShapeError(
+            "Could not determine the Prisma model for a guard() call: the extension context has no $name",
+          );
+        }
+
+        if (!Object.prototype.hasOwnProperty.call(typeMap, modelName)) {
+          throw new ShapeError(
+            `Unknown Prisma model "${modelName}" in a guard() call`,
+          );
+        }
+
+        const key = toDelegateKey(modelName);
+        const modelDelegate = this.$parent?.[key];
 
         if (!modelDelegate) {
           throw new ShapeError(
@@ -1291,8 +1318,8 @@ export function createModelGuardExtension(config: {
 
         return wrapMethods(methods);
       },
-    };
-  }
+    },
+  };
 
   return extension;
 }

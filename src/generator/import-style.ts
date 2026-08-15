@@ -4,7 +4,6 @@ import { getTsconfig } from 'get-tsconfig'
 
 export type ImportStyle = 'none' | 'js' | 'ts'
 export type ImportStyleConfig = 'auto' | ImportStyle
-export type PrismaClientKind = 'prisma-client-js' | 'prisma-client' | 'package'
 
 const NODE_ESM_MODES = new Set(['node16', 'node18', 'nodenext'])
 const NO_EXTENSION_RESOLUTIONS = new Set(['bundler', 'classic', 'node', 'node10'])
@@ -84,22 +83,5 @@ export function resolveImportStyle(
 export function withImportStyle(path: string, style: ImportStyle): string {
   if (style === 'js') return `${path}.js`
   if (style === 'ts') return `${path}.ts`
-  return path
-}
-
-export function withClientImportStyle(
-  path: string,
-  style: ImportStyle,
-  kind: PrismaClientKind,
-): string {
-  if (kind === 'package') return path
-  if (!path.startsWith('.')) return path
-
-  if (kind === 'prisma-client') {
-    const entry = `${path}/client`
-    return withImportStyle(entry, style)
-  }
-
-  if (style === 'js') return `${path}/index.js`
   return path
 }

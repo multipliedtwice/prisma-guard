@@ -1,3 +1,10 @@
+# [1.35.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.34.0...v1.35.0) (2026-08-16)
+
+
+### Features
+
+* improve scope warning logic to reduce noise and enhance clarity in logging ([1987186](https://github.com/multipliedtwice/prisma-guard/commit/1987186ad8ad354ade61a4935b06d8d8b0248f19))
+
 # [1.34.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.33.0...v1.34.0) (2026-08-15)
 
 

@@ -1,31 +1,35 @@
-# prisma-guard
+<p align="center">
+  <img src="./docs/assets/prisma-guard-mark.svg" width="104" height="104" alt="prisma-guard data boundary mark">
+</p>
 
-**Schema-driven security layer for Prisma**
-Generate input validation, query shape enforcement, and tenant isolation directly from your Prisma schema.
+<h1 align="center">prisma-guard</h1>
 
-[![npm version](https://img.shields.io/npm/v/prisma-guard)](https://www.npmjs.com/package/prisma-guard)
-[![license](https://img.shields.io/npm/l/prisma-guard)](./LICENSE)
-[![node](https://img.shields.io/node/v/prisma-guard)](./package.json)
-[![prisma](https://img.shields.io/badge/Prisma-6%20%7C%207-2D3748)](https://www.prisma.io/)
-[![zod](https://img.shields.io/badge/Zod-v4-3E67B1)](https://zod.dev/)
-[![codecov](https://codecov.io/gh/multipliedtwice/prisma-guard/graph/badge.svg?token=X3Y0CSLTCM)](https://codecov.io/gh/multipliedtwice/prisma-guard)
+<p align="center"><strong>Define Prisma data boundaries once. Reuse them across your API.</strong></p>
 
-`prisma-guard` helps prevent three common classes of backend mistakes:
+<p align="center">
+  Generated input validation and explicit query shapes keep allowed fields, response projection, and tenant scope in the Prisma call chain.
+</p>
 
-* **invalid input** reaching Prisma
-* **unsafe or overly broad query shapes**
-* **missing tenant filters** in multi-tenant systems
-```text
-client request
-      ↓
-.guard(shape)
-      ↓
-validated input + allowed query shape
-      ↓
-tenant scoped query
-      ↓
-database
-```
+<p align="center">
+  <a href="https://www.npmjs.com/package/prisma-guard"><img src="https://img.shields.io/npm/v/prisma-guard?logo=npm&amp;label=npm" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/prisma-guard"><img src="https://img.shields.io/npm/dm/prisma-guard?logo=npm&amp;label=downloads" alt="npm downloads"></a>
+  <a href="https://github.com/multipliedtwice/prisma-guard/actions/workflows/ci.yml"><img src="https://github.com/multipliedtwice/prisma-guard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://codecov.io/gh/multipliedtwice/prisma-guard"><img src="https://codecov.io/gh/multipliedtwice/prisma-guard/graph/badge.svg?token=X3Y0CSLTCM" alt="code coverage"></a>
+  <a href="#license"><img src="https://img.shields.io/npm/l/prisma-guard" alt="license"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/prisma-guard">npm</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#the-guard-api">Guard API</a> ·
+  <a href="#automatic-tenant-isolation">Tenant scope</a> ·
+  <a href="#limitations">Limitations</a> ·
+  <a href="https://multipliedtwice.github.io/prisma-generator-express/">Field Guide</a> ·
+  <a href="https://github.com/multipliedtwice/prisma-generator-express">Generated APIs</a>
+</p>
+
+`prisma-guard` generates Prisma-aware validation and scope metadata, then enforces the operation shape you declare with `.guard(shape)`. Client input is narrowed before Prisma runs; allowed projections and tenant context stay explicit at the data boundary.
 
 ---
 

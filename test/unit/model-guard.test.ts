@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { guardCtx } from "./helpers";
 import { createModelGuardExtension } from "../../src/runtime/model-guard";
 import { ShapeError, CallerError, PolicyError } from "../../src/shared/errors";
 import type {
@@ -184,10 +185,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { title: { contains: true } },
         },
@@ -207,10 +206,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { title: { contains: true } },
         },
@@ -225,10 +222,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { title: { contains: true } },
@@ -242,10 +237,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { title: { contains: true } },
         },
@@ -259,10 +252,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { title: { contains: true } },
         },
@@ -276,10 +267,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {},
       );
 
@@ -293,10 +282,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, status: true },
         },
@@ -314,10 +301,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, status: "draft" },
         },
@@ -335,10 +320,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -353,10 +336,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -369,10 +350,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -390,10 +369,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -411,10 +388,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -435,10 +410,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -453,10 +426,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -469,10 +440,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -486,10 +455,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -508,10 +475,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -531,10 +496,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -555,10 +518,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -576,10 +537,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -594,10 +553,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -617,10 +574,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, status: true },
           where: { id: true },
@@ -639,10 +594,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { description: true },
           where: { id: true },
@@ -663,10 +616,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -686,10 +637,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -708,10 +657,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: { equals: true } },
@@ -730,10 +677,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -749,10 +694,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -769,10 +712,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: { equals: true } },
         },
@@ -787,10 +728,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
           create: { title: true },
@@ -812,10 +751,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
           create: { title: true },
@@ -836,10 +773,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: { contains: true } },
@@ -858,10 +793,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { OR: { id: true } },
@@ -880,10 +813,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { title: true },
@@ -902,10 +833,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: "forced-id" },
@@ -926,10 +855,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -946,10 +873,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { status: { equals: true } },
@@ -967,10 +892,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { status: { equals: true } },
@@ -992,10 +915,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { status: { equals: "draft" } },
@@ -1016,10 +937,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -1036,10 +955,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {},
       );
 
@@ -1050,10 +967,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { status: { equals: true } },
         },
@@ -1066,10 +981,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { status: { equals: true } },
         },
@@ -1086,10 +999,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { status: { equals: "archived" } },
         },
@@ -1109,10 +1020,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -1128,10 +1037,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -1147,10 +1054,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {},
       );
 
@@ -1161,10 +1066,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { id: true },
         },
@@ -1184,10 +1087,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, tenant: true },
         },
@@ -1202,10 +1103,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, updatedAt: true },
         },
@@ -1220,10 +1119,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true, nonexistent: true },
         },
@@ -1238,10 +1135,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: [] },
         },
@@ -1254,10 +1149,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -1274,10 +1167,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin/projects": {
             data: { title: true, status: true },
@@ -1304,10 +1195,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin/projects": {
             data: { title: true },
@@ -1324,10 +1213,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin/projects": {
             data: { title: true },
@@ -1347,10 +1234,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/projects/:id": {
             data: { title: true },
@@ -1372,10 +1257,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": {
             where: { title: { contains: true } },
@@ -1397,10 +1280,8 @@ describe("model-guard", () => {
       });
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": {
             where: { title: { contains: true } },
@@ -1423,10 +1304,8 @@ describe("model-guard", () => {
       });
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         (ctx: any) => ({
           data: { title: true },
           ...(ctx.role === "admin" ? { where: { id: true } } : {}),
@@ -1447,10 +1326,8 @@ describe("model-guard", () => {
       });
       const { calls, handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/projects": (ctx: any) => ({
             data:
@@ -1477,10 +1354,8 @@ describe("model-guard", () => {
       });
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": { data: { title: true } },
         },
@@ -1497,10 +1372,8 @@ describe("model-guard", () => {
       });
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": { data: { title: true } },
         },
@@ -1517,10 +1390,8 @@ describe("model-guard", () => {
       });
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": { data: { title: true } },
         },
@@ -1537,10 +1408,8 @@ describe("model-guard", () => {
       });
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         (ctx: any) => ({
           data: { title: true },
         }),
@@ -1557,10 +1426,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           "/admin": { data: { title: true } },
         },
@@ -1574,10 +1441,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
         },
@@ -1592,10 +1457,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { id: true },
@@ -1614,10 +1477,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           data: { title: true },
           where: { title: { equals: true } },
@@ -1636,10 +1497,8 @@ describe("model-guard", () => {
       const ext = makeExtension();
       const { handler } = makeDelegateMock();
 
-      const guarded = ext.project.guard.call(
-        {
-          $parent: { project: handler },
-        } as any,
+      const guarded = ext.$allModels.guard.call(
+        guardCtx("Project", { project: handler }),
         {
           where: { title: { equals: true } },
         },

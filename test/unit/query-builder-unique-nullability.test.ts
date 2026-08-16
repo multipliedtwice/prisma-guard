@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { guardCtx } from "./helpers";
 import { createModelGuardExtension } from "../../src/runtime/model-guard.js";
 import { createQueryBuilder } from "../../src/runtime/query-builder.js";
 import { buildUniqueSelectorSchema } from "../../src/runtime/unique-selector-schema.js";
@@ -123,12 +124,8 @@ function makeGuardedAssignment(input: GuardInput) {
     contextFn: () => ({}),
   });
 
-  const assignment = extension.assignment.guard.call(
-    {
-      $parent: {
-        assignment: { update },
-      },
-    },
+  const assignment = extension.$allModels.guard.call(
+    guardCtx("Assignment", { assignment: { update } }),
     input,
   );
 

@@ -284,6 +284,8 @@ const prisma = new PrismaClient().$extends(
 )
 ```
 
+`guard.extension()` uses one Prisma `$allModels` entry internally. Direct access to `extension.model.<model>.guard` is unsupported. Apply the extension with `$extends`, then call `prisma.<model>.guard(...)`.
+
 ### 4. Provide request context
 
 The context function reads from `AsyncLocalStorage`, so each request needs to run inside a store scope:

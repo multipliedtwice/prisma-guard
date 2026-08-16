@@ -1,3 +1,10 @@
+# [1.34.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.33.0...v1.34.0) (2026-08-15)
+
+
+### Features
+
+* **generator:** compact model guard extension ([066f7ab](https://github.com/multipliedtwice/prisma-guard/commit/066f7abb62a92ae7de9244d19b17dc7eec45077d))
+
 # [1.33.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.32.1...v1.33.0) (2026-07-25)
 
 

@@ -5,6 +5,12 @@ import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./helpers";
+import {
+  generatorPath,
+  getPrismaMajor,
+  toolEntry,
+  toolEnv,
+} from "./toolchain";
 
 async function readText(path: string) {
   return readFile(path, "utf-8");
@@ -34,62 +40,6 @@ async function pathExists(p: string) {
  * directory holding them is where the executables and the module search path
  * come from. Nothing here depends on being run from any particular directory.
  */
-const requireFromHere = createRequire(import.meta.url);
-
-/** This package, rather than whatever directory the runner was started in. */
-const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-const generatorPath = resolve(packageRoot, "dist/generator/index.js");
-
-function toolPackageDir(name: string): string {
-  return dirname(requireFromHere.resolve(`${name}/package.json`));
-}
-
-/**
- * A tool's own entry point, read from its `bin` field.
- *
- * Run through `node` rather than through a `.bin` shim: the shim is an artefact
- * of one install layout, and the field is the package's own declaration of what
- * to execute.
- */
-async function toolEntry(name: string, binName: string): Promise<string> {
-  const dir = toolPackageDir(name);
-  const manifest = JSON.parse(await readText(join(dir, "package.json"))) as {
-    bin?: string | Record<string, string>;
-  };
-  const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[binName];
-  if (!bin) throw new Error(`${name} declares no "${binName}" binary`);
-  return resolve(dir, bin);
-}
-
-/** Every `node_modules` the resolved tools actually live in, deduplicated. */
-function moduleSearchPath(): string[] {
-  const dirs = ["prisma", "typescript"].map((name) => dirname(toolPackageDir(name)));
-  return [...new Set(dirs)];
-}
-
-/** What a child process needs to find the same toolchain this test resolved. */
-function toolEnv(): NodeJS.ProcessEnv {
-  const search = moduleSearchPath();
-  const binDirs = search.map((dir) => join(dir, ".bin"));
-  return {
-    ...process.env,
-    PATH: [...binDirs, process.env.PATH].filter(Boolean).join(delimiter),
-    NODE_PATH: search.join(delimiter),
-    DATABASE_URL: "file:./dev.db",
-  };
-}
-
-let prismaMajorCache: number | undefined;
-
-async function getPrismaMajor() {
-  if (prismaMajorCache !== undefined) return prismaMajorCache;
-  const prismaPkg = JSON.parse(
-    await readText(join(toolPackageDir("prisma"), "package.json")),
-  ) as { version: string };
-  prismaMajorCache = Number(prismaPkg.version.split(".")[0]);
-  return prismaMajorCache;
-}
-
 function generatorBlock(overrides: Record<string, string> = {}) {
   const opts: Record<string, string> = {
     provider: `"node ${generatorPath.replace(/\\/g, "\\\\")}"`,

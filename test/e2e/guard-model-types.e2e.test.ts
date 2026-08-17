@@ -16,23 +16,33 @@
 // exercises the SAME client without prisma-guard in the path, so a resolution
 // regression fails loudly instead of turning the suite green.
 import { describe, it, expect } from "vitest";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, sep } from "node:path";
+import {
+  generatorPath,
+  getPrismaMajor,
+  moduleSearchPath,
+  packageDirBeside,
+  packageRoot,
+  toolEntry,
+  toolEnv,
+  toolPackageDir,
+} from "./toolchain";
 import { run } from "./helpers";
 
-const repoRoot = resolve(process.cwd());
-const generatorPath = resolve(repoRoot, "dist/generator/index.js");
-const tscPath = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-const nodeModules = join(repoRoot, "node_modules");
-
-async function getPrismaMajor() {
-  const pkg = JSON.parse(
-    await readFile(join(nodeModules, "prisma", "package.json"), "utf-8"),
-  ) as { version: string };
-  return Number(pkg.version.split(".")[0]);
-}
+/**
+ * EVERY PATH HERE IS RESOLVED FROM THIS PACKAGE, NEVER FROM `process.cwd()`.
+ *
+ * This file used to read `<cwd>/node_modules` for the compiler, the Prisma CLI,
+ * the client, the client runtime utilities and zod. That is one install layout —
+ * this package on its own — and in the monorepo the five are split across two
+ * `node_modules` trees, so all fourteen cases died with ENOENT before an
+ * assertion ran. `test/e2e/toolchain.ts` resolves each one independently; see
+ * its header for why a single `nodeModules` constant cannot be correct.
+ */
+const tscPath = toolEntry("typescript", "tsc");
 
 // Models beyond the two the gates assert on. The point is breadth: the emitted
 // extension object grows one member per model, and that growth is what the
@@ -104,15 +114,12 @@ ${stressModels(stressCount)}
 
   await writeFile(join(dir, "schema.prisma"), schema, "utf-8");
 
-  const pathSep = process.platform === "win32" ? ";" : ":";
-  const env = {
-    ...process.env,
-    PATH: `${join(nodeModules, ".bin")}${pathSep}${process.env.PATH}`,
-    NODE_PATH: nodeModules,
-    DATABASE_URL: "file:./dev.db",
-  };
+  const env = toolEnv();
 
-  const gen = await run("prisma", ["generate"], { cwd: dir, env });
+  // Through `node` and the CLI's own entry, not a `.bin` shim: the shim exists
+  // only in the layout that hoisted it, which is the assumption this file is
+  // being cured of.
+  const gen = await run("node", [toolEntry("prisma", "prisma"), "generate"], { cwd: dir, env });
   if (gen.code !== 0) {
     throw new Error(
       `prisma generate failed\n\nSTDOUT:\n${gen.stdout}\n\nSTDERR:\n${gen.stderr}`,
@@ -183,8 +190,20 @@ export async function control() {
 }
 `;
 
-// Bundler resolution does not walk out of a tmp dir to find these, so every
-// package the generated client pulls in is mapped explicitly from repoRoot.
+/**
+ * Bundler resolution does not walk out of a tmp dir to find these, so every
+ * package the generated client pulls in is mapped explicitly — each one to where
+ * it REALLY is, which in a workspace is not one shared directory.
+ *
+ * `@prisma/client-runtime-utils` is anchored to the client rather than searched:
+ * this repo holds two copies at different versions, and pairing the client's
+ * types with the other one degrades the generated types the `control` gate below
+ * exists to protect.
+ */
+const clientDir = toolPackageDir("@prisma/client");
+const runtimeUtilsDir = packageDirBeside("@prisma/client", "@prisma/client-runtime-utils");
+const zodDir = toolPackageDir("zod");
+
 function tsconfigFor(files: string[]) {
   return {
     compilerOptions: {
@@ -197,13 +216,13 @@ function tsconfigFor(files: string[]) {
       types: [],
       baseUrl: ".",
       paths: {
-        "@prisma/client": [join(nodeModules, "@prisma/client")],
-        "@prisma/client/*": [join(nodeModules, "@prisma/client", "*")],
-        "@prisma/client-runtime-utils": [
-          join(nodeModules, "@prisma/client-runtime-utils"),
-        ],
-        "prisma-guard": [join(repoRoot, "dist/runtime/index.d.ts")],
-        zod: [join(nodeModules, "zod")],
+        "@prisma/client": [clientDir],
+        "@prisma/client/*": [join(clientDir, "*")],
+        ...(runtimeUtilsDir === null
+          ? {}
+          : { "@prisma/client-runtime-utils": [runtimeUtilsDir] }),
+        "prisma-guard": [join(packageRoot, "dist/runtime/index.d.ts")],
+        zod: [zodDir],
       },
     },
     include: files,
@@ -220,6 +239,57 @@ async function typecheck(dir: string, env: NodeJS.ProcessEnv, files: string[]) {
 
   return run("node", [tscPath, "-p", tsconfigPath, "--noEmit"], { cwd: dir, env });
 }
+
+/**
+ * THE HARNESS'S OWN CONTROL, and it runs before the fixtures.
+ *
+ * The gates below are only meaningful if the compiler, the CLI, the client and
+ * zod were all really found. When they are not, `tsc` maps nothing, every type
+ * degrades to `any`, the positive gates pass vacuously and the
+ * `@ts-expect-error` directives go unused — the failure mode this file's
+ * `control.ts` fixture already guards at the type level. These assert the same
+ * thing one layer earlier, at resolution, where the workspace layout breaks it.
+ */
+describe("the harness resolves its toolchain, in whatever layout it is installed", () => {
+  it("finds every package it maps into the generated project's tsconfig", () => {
+    for (const [label, dir] of [
+      ["@prisma/client", clientDir],
+      ["zod", zodDir],
+      ["typescript (tsc)", tscPath],
+      ["prisma-guard runtime", join(packageRoot, "dist/runtime/index.d.ts")],
+    ] as const) {
+      expect(existsSync(dir), `${label} is not at ${dir}`).toBe(true);
+    }
+    expect(runtimeUtilsDir, "@prisma/client-runtime-utils was not found").not.toBeNull();
+  });
+
+  it("pairs the client with ITS OWN runtime utilities, not another copy's", () => {
+    // This repo really holds two, at different versions. Mapping the client's
+    // types against the other one is a resolution regression that degrades the
+    // generated types rather than failing loudly.
+    const version = (dir: string) =>
+      (JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { version: string }).version;
+
+    expect(version(runtimeUtilsDir!)).toBe(version(clientDir));
+  });
+
+  it("does not assume one node_modules holds them all", () => {
+    /**
+     * The defect this file was cured of. Installed standalone the tools and the
+     * client share a directory; installed in this workspace they do not, because
+     * the root pins a conflicting Prisma major. A harness that names ONE
+     * directory is right in the first layout and finds nothing in the second, so
+     * what is asserted is that each package is reached through the search path
+     * rather than through a single assumed root.
+     */
+    const search = moduleSearchPath();
+    const holder = (dir: string) => search.find((base) => dir.startsWith(base + sep));
+
+    expect(holder(clientDir), `${clientDir} is outside the search path`).toBeDefined();
+    expect(holder(tscPath), `${tscPath} is outside the search path`).toBeDefined();
+    expect(search.every((dir) => dir.endsWith("node_modules"))).toBe(true);
+  });
+});
 
 describe("e2e: generated guard model types", () => {
   it(

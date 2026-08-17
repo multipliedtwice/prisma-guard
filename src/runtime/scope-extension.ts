@@ -110,11 +110,24 @@ function scopeValuesEqual(a: unknown, b: unknown): boolean {
   const aIsBig = typeof a === "bigint"
   const bIsBig = typeof b === "bigint"
 
+  /**
+   * SAFE integers only, and that is a tenancy boundary rather than a nicety.
+   *
+   * A `number` past 2^53 is not the integer it was written as: the literal
+   * `9007199254740993` IS the double `9007199254740992`, so `Number.isInteger`
+   * says yes and `BigInt(...)` yields a value equal to a DIFFERENT scope id.
+   * A caller supplying that number would compare equal to tenant
+   * `9007199254740992n` and be handed its rows.
+   *
+   * `Number.isSafeInteger` refuses every value in the range where a number can
+   * no longer name exactly one integer, so an out-of-range scope fails closed
+   * instead of aliasing onto a neighbour.
+   */
   if (aIsBig && typeof b === "number") {
-    return Number.isInteger(b) && a === BigInt(b)
+    return Number.isSafeInteger(b) && a === BigInt(b)
   }
   if (bIsBig && typeof a === "number") {
-    return Number.isInteger(a) && b === BigInt(a)
+    return Number.isSafeInteger(a) && b === BigInt(a)
   }
 
   return false

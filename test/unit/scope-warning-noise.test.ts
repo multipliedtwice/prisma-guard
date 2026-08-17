@@ -167,3 +167,51 @@ describe('the relation form is refused, not merely reported', () => {
     expect(args.data?.tenant).toBeUndefined()
   })
 })
+
+describe('a number that cannot name one integer is a DISAGREEMENT, not agreement', () => {
+  /**
+   * THE COMPARISON DECIDES WHETHER ANYONE IS TOLD.
+   *
+   * The row filter is never the caller's: a supplied scope column is stripped
+   * and the context's predicate is applied, so this is not a leak. What it
+   * decides is whether a caller trying to leave its scope is REPORTED — and
+   * that report is the only signal such an attempt produces.
+   *
+   * Past 2^53 a `number` no longer names one integer. The literal
+   * `9007199254740993` IS the double `9007199254740992`, so an `isInteger` test
+   * calls it equal to tenant `9007199254740992n` and the warning never fires:
+   * the one caller worth hearing about is silently reclassified as
+   * defence-in-depth. `isSafeInteger` refuses that whole range, so anything
+   * ambiguous is reported.
+   */
+  it('warns when the caller names an unsafe number against a real bigint scope', async () => {
+    const h = harness(9007199254740992n)
+
+    await h.call('update', { where: { id: 1, tenantId: 9007199254740993 }, data: { title: 'x' } })
+
+    expect(h.warnings).toHaveLength(1)
+    expect(h.warnings[0]).toContain('tenantId')
+  })
+
+  it('warns at the safe-range boundary, on either side of the comparison', async () => {
+    const unsafe = Number.MAX_SAFE_INTEGER + 1
+
+    const fromCaller = harness(BigInt(unsafe))
+    await fromCaller.call('update', { where: { id: 1, tenantId: unsafe }, data: {} })
+    expect(fromCaller.warnings).toHaveLength(1)
+
+    const fromContext = harness(unsafe)
+    await fromContext.call('update', { where: { id: 1, tenantId: BigInt(unsafe) }, data: {} })
+    expect(fromContext.warnings).toHaveLength(1)
+  })
+
+  it('stays silent for the largest id a number CAN name exactly', async () => {
+    // The control: the fix refuses an ambiguous range, not large ids.
+    const max = Number.MAX_SAFE_INTEGER
+    const h = harness(BigInt(max))
+
+    await h.call('update', { where: { id: 1, tenantId: max }, data: {} })
+
+    expect(h.warnings).toEqual([])
+  })
+})

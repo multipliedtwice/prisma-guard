@@ -260,10 +260,15 @@ describe("the harness resolves its toolchain, in whatever layout it is installed
     ] as const) {
       expect(existsSync(dir), `${label} is not at ${dir}`).toBe(true);
     }
-    expect(runtimeUtilsDir, "@prisma/client-runtime-utils was not found").not.toBeNull();
+    // Prisma 7's client alone depends on `@prisma/client-runtime-utils`. The v6
+    // client ships no such package, so under that major there is nothing to find
+    // and nothing mapped into the tsconfig.
+    if (getPrismaMajor() >= 7) {
+      expect(runtimeUtilsDir, "@prisma/client-runtime-utils was not found").not.toBeNull();
+    }
   });
 
-  it("pairs the client with ITS OWN runtime utilities, not another copy's", () => {
+  it.skipIf(getPrismaMajor() < 7)("pairs the client with ITS OWN runtime utilities, not another copy's", () => {
     // This repo really holds two, at different versions. Mapping the client's
     // types against the other one is a resolution regression that degrades the
     // generated types rather than failing loudly.

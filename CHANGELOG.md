@@ -1,3 +1,16 @@
+# [1.36.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.35.0...v1.36.0) (2026-08-22)
+
+
+### Bug Fixes
+
+* require a safe integer when a number is compared with a bigint scope ([44d7583](https://github.com/multipliedtwice/prisma-guard/commit/44d7583666d0d3a5674b7de1f9687ab6c28a09b8))
+* update runtime utilities check for Prisma client version compatibility ([4754ee9](https://github.com/multipliedtwice/prisma-guard/commit/4754ee91b13992b67e3a4f9007e09dada9a153a1))
+
+
+### Features
+
+* refactor toolchain resolution for improved package management in tests ([a807148](https://github.com/multipliedtwice/prisma-guard/commit/a807148ed8fa7745350e225c27972a40b399dc01))
+
 # [1.35.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.34.0...v1.35.0) (2026-08-16)
 
 

@@ -1,8 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { run } from "./helpers";
+import {
+  generatorPath,
+  getPrismaMajor,
+  toolEntry,
+  toolEnv,
+} from "./toolchain";
 
 async function readText(path: string) {
   return readFile(path, "utf-8");
@@ -17,24 +25,21 @@ async function pathExists(p: string) {
   }
 }
 
-const repoRoot = resolve(process.cwd());
-const generatorPath = resolve(repoRoot, "dist/generator/index.js");
-const prismaBin =
-  process.platform === "win32"
-    ? join(repoRoot, "node_modules", ".bin", "prisma.cmd")
-    : join(repoRoot, "node_modules", ".bin", "prisma");
-
-let prismaMajorCache: number | undefined;
-
-async function getPrismaMajor() {
-  if (prismaMajorCache !== undefined) return prismaMajorCache;
-  const prismaPkg = JSON.parse(
-    await readText(join(repoRoot, "node_modules", "prisma", "package.json")),
-  ) as { version: string };
-  prismaMajorCache = Number(prismaPkg.version.split(".")[0]);
-  return prismaMajorCache;
-}
-
+/**
+ * THE TOOLCHAIN IS RESOLVED, NOT GUESSED AT A PATH.
+ *
+ * This computed `process.cwd()` and then read `<cwd>/node_modules/prisma`,
+ * `<cwd>/node_modules/.bin` and `<cwd>/node_modules/typescript`. That describes
+ * one install layout — a package installed on its own — and it is not the layout
+ * this package is developed in: inside a workspace the installer hoists
+ * dependencies to the root, so every one of those paths is absent and all
+ * fourteen cases here died with ENOENT before a single assertion ran.
+ *
+ * `prisma` and `typescript` are DECLARED dependencies of this package, so Node's
+ * own resolution can find them from this file wherever they were placed, and the
+ * directory holding them is where the executables and the module search path
+ * come from. Nothing here depends on being run from any particular directory.
+ */
 function generatorBlock(overrides: Record<string, string> = {}) {
   const opts: Record<string, string> = {
     provider: `"node ${generatorPath.replace(/\\/g, "\\\\")}"`,
@@ -81,19 +86,9 @@ async function runGenerate(dir: string, schema: string) {
   const schemaPath = join(dir, "schema.prisma");
   await writeFile(schemaPath, schema, "utf-8");
 
-  const binDir = join(repoRoot, "node_modules", ".bin");
-  const pathSep = process.platform === "win32" ? ";" : ":";
-
-  const env = {
-    ...process.env,
-    PATH: `${binDir}${pathSep}${process.env.PATH}`,
-    NODE_PATH: join(repoRoot, "node_modules"),
-    DATABASE_URL: "file:./dev.db",
-  };
-
-  return run(prismaBin, ["generate", "--schema", schemaPath], {
+  return run(process.execPath, [await toolEntry("prisma", "prisma"), "generate", "--schema", schemaPath], {
     cwd: dir,
-    env,
+    env: toolEnv(),
   });
 }
 
@@ -113,14 +108,7 @@ describe("e2e: prisma-guard generator", () => {
     "emits scope/type/enum/zod outputs via prisma generate and TS typechecks",
     async () => {
       const dir = await setupTempDir();
-      const binDir = join(repoRoot, "node_modules", ".bin");
-      const pathSep = process.platform === "win32" ? ";" : ":";
-      const env = {
-        ...process.env,
-        PATH: `${binDir}${pathSep}${process.env.PATH}`,
-        NODE_PATH: join(repoRoot, "node_modules"),
-        DATABASE_URL: "file:./dev.db",
-      };
+      const env = toolEnv();
 
       const schema = await makeSchema(`
 enum Role {
@@ -219,8 +207,8 @@ model AmbiguousLink {
       const tsconfigPath = join(dir, "tsconfig.e2e.json");
       await writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2), "utf-8");
 
-      const tscPath = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-      const tc = await run("node", [tscPath, "-p", tsconfigPath, "--noEmit"], {
+      const tscPath = await toolEntry("typescript", "tsc");
+      const tc = await run(process.execPath, [tscPath, "-p", tsconfigPath, "--noEmit"], {
         cwd: dir,
         env,
       });

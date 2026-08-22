@@ -40,14 +40,34 @@ function stripScopeFksFromWhere(
   scopeFks: Set<string>,
   log: GuardLogger,
   model: string,
+  scopeValues?: Record<string, unknown>,
 ): Record<string, unknown> {
   let result = where;
   for (const fk of scopeFks) {
     if (fk in result) {
       if (result === where) result = { ...where };
-      log.warn(
-        `prisma-guard: Scope FK "${fk}" found in where for model "${model}". Stripped in favor of scope context.`,
-      );
+      /**
+       * Only a DISAGREEMENT is worth a line.
+       *
+       * A caller that also names the scope column with the value the context
+       * already carries has written the predicate twice — which is what
+       * defence-in-depth looks like, and warning about it trains people to
+       * ignore this logger. A caller naming a DIFFERENT value is trying to leave
+       * its scope, and that stays loud.
+       */
+      const expected = scopeValues?.[fk];
+      const supplied = result[fk];
+      /**
+       * `scopeValuesEqual`, not `!==`: the same scope can arrive as `1n` from
+       * the context and `1` from a caller, and strict inequality calls that a
+       * disagreement — a warning on every correct request, which is the noise
+       * this comparison exists to remove.
+       */
+      if (expected === undefined || !scopeValuesEqual(supplied, expected)) {
+        log.warn(
+          `prisma-guard: Scope FK "${fk}" found in where for model "${model}". Stripped in favor of scope context.`,
+        );
+      }
       delete result[fk];
     }
   }
@@ -63,7 +83,10 @@ function buildScopedUniqueWhere(
 ): Record<string, unknown> {
   let cleaned = existingWhere;
   if (cleaned) {
-    cleaned = stripScopeFksFromWhere(cleaned, scopeFks, log, model);
+    // The conditions ARE the scope values, flattened, so the strip can tell a
+    // duplicated predicate from a contradicting one.
+    const scopeValues = Object.assign({}, ...conditions) as Record<string, unknown>;
+    cleaned = stripScopeFksFromWhere(cleaned, scopeFks, log, model, scopeValues);
   }
   if (!cleaned || Object.keys(cleaned).length === 0) {
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
@@ -87,11 +110,24 @@ function scopeValuesEqual(a: unknown, b: unknown): boolean {
   const aIsBig = typeof a === "bigint"
   const bIsBig = typeof b === "bigint"
 
+  /**
+   * SAFE integers only, and that is a tenancy boundary rather than a nicety.
+   *
+   * A `number` past 2^53 is not the integer it was written as: the literal
+   * `9007199254740993` IS the double `9007199254740992`, so `Number.isInteger`
+   * says yes and `BigInt(...)` yields a value equal to a DIFFERENT scope id.
+   * A caller supplying that number would compare equal to tenant
+   * `9007199254740992n` and be handed its rows.
+   *
+   * `Number.isSafeInteger` refuses every value in the range where a number can
+   * no longer name exactly one integer, so an out-of-range scope fails closed
+   * instead of aliasing onto a neighbour.
+   */
   if (aIsBig && typeof b === "number") {
-    return Number.isInteger(b) && a === BigInt(b)
+    return Number.isSafeInteger(b) && a === BigInt(b)
   }
   if (bIsBig && typeof a === "number") {
-    return Number.isInteger(a) && b === BigInt(a)
+    return Number.isSafeInteger(a) && b === BigInt(a)
   }
 
   return false
@@ -149,9 +185,16 @@ function enforceDataScope(
 ): void {
   for (const scope of scopes) {
     if (scope.fk in data) {
-      log.warn(
-        `prisma-guard: Scope FK "${scope.fk}" in ${operation} data for model "${model}" was overridden by scope context.`,
-      );
+      // Silent when the caller supplied the value the context already holds:
+      // nothing was overridden. Loud when the two disagree — that write was
+      // aimed somewhere else.
+      // Same helper as the read path, so a numeric scope is not reported as a
+      // disagreement with itself.
+      if (!scopeValuesEqual(data[scope.fk], overrides[scope.fk])) {
+        log.warn(
+          `prisma-guard: Scope FK "${scope.fk}" in ${operation} data for model "${model}" was overridden by scope context.`,
+        );
+      }
     }
     if (scope.relationName in data) {
       if (onScopeRelationWrite === "error") {

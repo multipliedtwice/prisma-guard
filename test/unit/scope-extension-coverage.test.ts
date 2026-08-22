@@ -7,17 +7,35 @@ const SCOPE_MAP: ScopeMap = {
   Post: [{ fk: 'userId', root: 'User', relationName: 'author' }],
 }
 
+/**
+ * The arguments these cases read, typed rather than `any`.
+ *
+ * `any` is what the extension's own signature uses, and it is the one type that
+ * cannot fail when the extension stops putting a value where a case expects it —
+ * which is exactly what these assertions are for. The shape below carries only
+ * the fields read here; anything else the extension passes through is
+ * irrelevant to them.
+ */
+type ScopedArgs = {
+  data?: Record<string, unknown>
+  where?: Record<string, unknown>
+  select?: Record<string, unknown>
+  include?: Record<string, unknown>
+}
+
+type AllOperations = (params: {
+  model: string | undefined
+  operation: string
+  args: ScopedArgs
+  query: (args: ScopedArgs) => Promise<ScopedArgs | ScopedArgs[]>
+}) => Promise<ScopedArgs | ScopedArgs[]>
+
 function makeExtension(
   ctx: () => Partial<Record<string, string | number | bigint>>,
   config: GuardGeneratedConfig = { onMissingScopeContext: 'error', findUniqueMode: 'verify' },
-) {
+): AllOperations {
   const ext = createScopeExtension(SCOPE_MAP, ctx, config)
-  return ext.query.$allOperations as (params: {
-    model: string | undefined
-    operation: string
-    args: any
-    query: (args: any) => Promise<any>
-  }) => Promise<any>
+  return ext.query.$allOperations as AllOperations
 }
 
 describe('scope-extension coverage: validateScopeValue', () => {
@@ -28,7 +46,7 @@ describe('scope-extension coverage: validateScopeValue', () => {
         model: 'Post',
         operation: 'findMany',
         args: {},
-        query: async (args: any) => [],
+        query: async () => [],
       }),
     ).toThrow(PolicyError)
   })
@@ -40,7 +58,7 @@ describe('scope-extension coverage: validateScopeValue', () => {
         model: 'Post',
         operation: 'findMany',
         args: {},
-        query: async (args: any) => [],
+        query: async () => [],
       }),
     ).toThrow(PolicyError)
   })
@@ -52,7 +70,7 @@ describe('scope-extension coverage: validateScopeValue', () => {
         model: 'Post',
         operation: 'findMany',
         args: {},
-        query: async (args: any) => [],
+        query: async () => [],
       }),
     ).toThrow(PolicyError)
   })
@@ -110,12 +128,12 @@ describe('scope-extension coverage: handleFindUnique edge cases', () => {
 
   it('injects FK into select and cleans up after verification', async () => {
     const handler = makeExtension(() => ({ User: 'u1' }))
-    const queriedArgs: any[] = []
+    const queriedArgs: ScopedArgs[] = []
     const result = await handler({
       model: 'Post',
       operation: 'findUnique',
       args: { where: { id: '1' }, select: { id: true, title: true } },
-      query: async (args: any) => {
+      query: async (args: ScopedArgs) => {
         queriedArgs.push(args)
         return { id: '1', title: 'Test', userId: 'u1' }
       },
@@ -156,7 +174,7 @@ describe('scope-extension coverage: handleFindUnique edge cases', () => {
       model: 'Post',
       operation: 'findUnique',
       args: { where: { id: '1' } },
-      query: async (args: any) => {
+      query: async (args: ScopedArgs) => {
         callCount++
         if (callCount === 1) return { id: '1', title: 'Test' }
         return { userId: 'u1' }
@@ -259,7 +277,7 @@ describe('scope-extension coverage: passthrough for non-scoped models', () => {
       model: 'Comment',
       operation: 'findMany',
       args: { where: { text: 'hello' } },
-      query: async (args: any) => args,
+      query: async (args: ScopedArgs) => args,
     })
     expect(result).toEqual({ where: { text: 'hello' } })
   })
@@ -270,7 +288,7 @@ describe('scope-extension coverage: passthrough for non-scoped models', () => {
       model: undefined,
       operation: 'findMany',
       args: {},
-      query: async (args: any) => args,
+      query: async (args: ScopedArgs) => args,
     })
     expect(result).toEqual({})
   })

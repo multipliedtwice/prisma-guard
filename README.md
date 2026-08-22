@@ -18,11 +18,13 @@ Generate input validation, query shape enforcement, and tenant isolation directl
 ```text
 client request
       ↓
-.guard(shape)
+.guard((ctx) => shape)   ← tenant filter declared in the shape
       ↓
 validated input + allowed query shape
       ↓
-tenant scoped query
+tenant filter enforced
+      ↓
+automatic scope injection (backstop)
       ↓
 database
 ```
@@ -51,7 +53,7 @@ database
 * [Upsert](#upsert)
 * [Named shapes and caller routing](#named-shapes-and-caller-routing)
 * [Context-dependent shapes](#context-dependent-shapes)
-* [Automatic tenant isolation](#automatic-tenant-isolation)
+* [Tenant isolation](#tenant-isolation)
 * [Multi-root scope behavior](#multi-root-scope-behavior)
 * [findUnique behavior](#findunique-behavior)
 * [Output shaping](#output-shaping)
@@ -121,6 +123,8 @@ await prisma.project.findFirst({
 
 If `projectId` belongs to another tenant, data can leak.
 
+prisma-guard's answer is a tenant filter declared in the shape — see [Tenant isolation](#tenant-isolation).
+
 ---
 
 ## What prisma-guard does
@@ -131,7 +135,7 @@ If `projectId` belongs to another tenant, data can leak.
 | ----------------------- | ------------------------------------------- |
 | Input validation        | Zod schemas generated from Prisma types     |
 | Query shape enforcement | Only allowed query shapes pass validation   |
-| Tenant isolation        | Prisma extension injects tenant filters     |
+| Tenant isolation        | Explicit tenant filters via context-dependent shapes (recommended); automatic scope injection as a backstop |
 | Schema-driven           | Rules come directly from your Prisma schema |
 
 The goal is simple:
@@ -201,6 +205,8 @@ This leniency does not apply to boundary safety. prisma-guard should still rejec
 ## Architecture
 
 `prisma-guard` sits between your application and Prisma Client. The `.guard(shape)` call defines the boundary; the chained Prisma method validates and executes in one step.
+
+Tenant isolation is layered: tenant filters declared in the shape are the primary enforcement; the scope extension is an automatic backstop for top-level operations.
 ```text
 ┌───────────────┐
 │   Client      │
@@ -208,18 +214,21 @@ This leniency does not apply to boundary safety. prisma-guard should still rejec
 └───────┬───────┘
         │ request
         ▼
-┌──────────────────────┐
-│   .guard(shape)       │
-│  validates input +    │
-│  enforces query shape │
-└─────────┬────────────┘
+┌──────────────────────────┐
+│  .guard((ctx) => shape)  │
+│  validates input +       │
+│  enforces query shape    │
+│  tenant filters          │
+│  (primary enforcement)   │
+└─────────┬────────────────┘
           │ validated args
           ▼
-┌──────────────────────┐
-│ Tenant Scope Layer    │
-│ (Prisma extension)    │
-│ injects tenant filter │
-└─────────┬────────────┘
+┌──────────────────────────┐
+│ Scope Extension Layer    │
+│ (Prisma extension)       │
+│ tenant backstop          │
+│ (top-level ops only)     │
+└─────────┬────────────────┘
           │ scoped query
           ▼
 ┌──────────────────────┐
@@ -286,6 +295,8 @@ const prisma = new PrismaClient().$extends(
 
 `guard.extension()` uses one Prisma `$allModels` entry internally. Direct access to `extension.model.<model>.guard` is unsupported. Apply the extension with `$extends`, then call `prisma.<model>.guard(...)`.
 
+This extension is the automatic scope **backstop**: it injects scope foreign keys on creates, rejects unsafe scoped `findUnique`, and fails closed when tenant context is missing. Keep it enabled even when you declare tenant filters in shapes.
+
 ### 4. Provide request context
 
 The context function reads from `AsyncLocalStorage`, so each request needs to run inside a store scope:
@@ -298,7 +309,24 @@ await store.run({ tenantId }, async () => {
 
 In a web framework, set the store once per request and run the route handler inside it.
 
-### 5. Use it
+### 5. Enforce tenants in the shape (multi-tenant)
+
+For multi-tenant systems, declare tenant filters explicitly with a context-dependent shape. This is the recommended isolation mechanism:
+
+```ts
+import { force } from 'prisma-guard'
+
+await prisma.project
+  .guard((ctx) => ({
+    where: { tenantId: { equals: force(ctx.Tenant) } },
+    select: { id: true, title: true },
+  }))
+  .findMany(req.body)
+```
+
+Tenant filters written in the shape apply at the top level and inside every nested to-many include the shape exposes. They are visible in code review, greppable, and cannot be widened by client input.
+
+### 6. Use it
 ```ts
 await prisma.project
   .guard({
@@ -315,7 +343,7 @@ await prisma.project
   .findMany(req.body)
 ```
 
-That's it. Input is validated, query shape is enforced, tenant scope is injected. All in one chain.
+That's it. Input is validated, query shape is enforced, tenant filters from the shape are applied, and the scope extension runs as a backstop. All in one chain.
 
 ---
 
@@ -429,7 +457,7 @@ await prisma.project
 | ------------------- | ------------------------------------------------ |
 | arbitrary input     | `data` shape restricts writable fields + Zod     |
 | expensive queries   | shape whitelist on where, include, take, orderBy  |
-| cross-tenant access | automatic scope injection via extension           |
+| cross-tenant access | tenant filters in context-dependent shapes; scope extension as backstop |
 
 ---
 
@@ -2104,11 +2132,35 @@ Static shapes and function shapes can be mixed freely in the same shape map. In 
 
 ---
 
-## Automatic tenant isolation
+## Tenant isolation
 
-Tenant predicates are injected into top-level scoped queries only. Nested reads via `include` or `select` and nested writes are **not** automatically scoped by the extension. See [Limitations](#limitations) for details.
+Tenant isolation has two layers:
 
-Input query:
+1. **Primary — tenant filters in the shape.** Declare them with a context-dependent shape. This is the recommended mechanism for multi-tenant systems:
+
+```ts
+import { force } from 'prisma-guard'
+
+await prisma.project
+  .guard((ctx) => ({
+    where: { tenantId: { equals: force(ctx.Tenant) } },
+    include: {
+      tasks: {
+        where: { tenantId: { equals: force(ctx.Tenant) } },
+        select: { id: true, title: true },
+      },
+    },
+  }))
+  .findMany(req.body)
+```
+
+Tenant filters written in the shape apply at the top level and inside every nested to-many include the shape exposes. They are visible in code review, greppable, and cannot be widened by client input. This is the only mechanism that constrains nested reads — the extension cannot reach them.
+
+2. **Backstop — automatic scope injection.** Independently of shapes, the extension injects tenant predicates into top-level scoped queries. It catches unguarded top-level calls, injects scope FKs into creates, and fails closed when tenant context is missing.
+
+Automatic injection covers top-level operations only. Nested reads via `include` or `select` and nested writes are **not** automatically scoped by the extension — constrain them in the shape. See [Limitations](#limitations) for details.
+
+Backstop example — the extension rewrites:
 ```ts
 await prisma.project
   .guard({ where: { id: { equals: true } } })
@@ -2123,7 +2175,7 @@ AND tenantId = ?
 
 This applies to all top-level operations on scoped models, including reads, writes, upserts, and deletes.
 
-### What is scoped
+### What the backstop covers (scoped)
 
 * All top-level reads (`findMany`, `findFirst`, `findFirstOrThrow`, `count`, `aggregate`, `groupBy`)
 * All top-level creates (`create`, `createMany`, `createManyAndReturn`) — scope FK is injected into data
@@ -2131,7 +2183,7 @@ This applies to all top-level operations on scoped models, including reads, writ
 * All top-level bulk mutations (`updateMany`, `updateManyAndReturn`, `deleteMany`) — scope condition is merged into where, scope FK is stripped from data
 * `upsert` — scope condition is merged into where, scope FK is injected into create data, scope FK is stripped from update data
 
-### What is NOT scoped
+### What the backstop does not cover
 
 * Scope root model delegates themselves — `@scope-root` marks a context root; it does not self-scope direct calls to that model
 * Nested reads loaded via `include` or `select` — use forced where conditions in the shape to restrict these (to-many relations only; see [Limitations](#limitations))
@@ -2310,15 +2362,16 @@ For money or high-precision values, strict mode is recommended. Pass decimal str
 
 ## Security model
 
-`prisma-guard` enforces three layers.
+`prisma-guard` enforces four layers.
 
 | Layer          | Purpose                        |
 | -------------- | ------------------------------ |
 | Input boundary | prevents invalid input         |
 | Query boundary | restricts allowed query shapes |
-| Data boundary  | injects tenant scope           |
+| Tenant filters in shapes | primary tenant enforcement — top-level and nested to-many includes the shape exposes |
+| Scope extension | automatic backstop for top-level operations |
 
-These layers are complementary. Together they provide a fail-closed data boundary around Prisma usage at the **top-level operation** only. Nested reads and writes are not intercepted by the scope layer — see [Limitations](#limitations).
+Tenant filters declared in context-dependent shapes are the primary enforcement and cover every level the shape defines. The scope extension backstop covers top-level operations only. Nested reads and writes that the shape does not explicitly constrain are not intercepted — see [Limitations](#limitations).
 
 ---
 
@@ -2695,7 +2748,7 @@ generator guard {
 
 Best fit:
 
-* multi-tenant SaaS backends
+* multi-tenant SaaS backends that want explicit, reviewable tenant filters in shapes
 * Prisma-based microservices
 * RPC / internal API backends
 * systems that want schema-driven validation and scoping
@@ -2728,16 +2781,17 @@ Node 22
 
 1. Fail closed on ambiguous security conditions
 2. Prefer query-time enforcement over verification
-3. Generate minimal runtime metadata
-4. Avoid automatic relation traversal
-5. Keep scope rules explicit and schema-driven
-6. One chain — shape defines the boundary, method executes
-7. Method bodies stay Prisma-compatible — routing and context live in `.guard()`
-8. No overloaded sentinel values — `true` always means client-controlled, `force()` for forced booleans
-9. Upsert uses `create`/`update` keys, not `data` — matches Prisma's own API shape
-10. Shape config values are validated strictly — `true` means enabled, anything else is rejected
-11. Read shapes with projection define both the security boundary and the default response — no client duplication needed
-12. Nested writes are validated but not scope-intercepted — document clearly and rely on database constraints for tenant boundaries
+3. Tenant enforcement belongs in the shape — context-dependent shapes are the primary mechanism; automatic scope injection is a backstop
+4. Generate minimal runtime metadata
+5. Avoid automatic relation traversal
+6. Keep scope rules explicit and schema-driven
+7. One chain — shape defines the boundary, method executes
+8. Method bodies stay Prisma-compatible — routing and context live in `.guard()`
+9. No overloaded sentinel values — `true` always means client-controlled, `force()` for forced booleans
+10. Upsert uses `create`/`update` keys, not `data` — matches Prisma's own API shape
+11. Shape config values are validated strictly — `true` means enabled, anything else is rejected
+12. Read shapes with projection define both the security boundary and the default response — no client duplication needed
+13. Nested writes are validated but not scope-intercepted — constrain them with shape-level tenant filters or database constraints
 
 ---
 
@@ -2747,7 +2801,9 @@ Node 22
 | ------------------------------------------ | -------------- | ----------- |
 | Input validation                           | yes            | no          |
 | Query shape enforcement                    | yes            | no          |
-| Automatic tenant scoping (top-level)       | yes            | no          |
+| Tenant filters via context-dependent shapes | yes            | manual      |
+| Nested read tenant filtering (to-many, via shapes) | yes     | manual      |
+| Automatic scope injection backstop (top-level) | yes        | no          |
 | Safe scoped `findUnique` in extension mode | reject         | not handled |
 | Schema-driven rules                        | yes            | no          |
 | Caller-based shape routing                 | yes            | no          |
@@ -2774,7 +2830,7 @@ Node 22
 | Forced operator inline merge               | yes            | n/a         |
 | Strict Decimal mode                        | opt-in         | n/a         |
 | `@zod .default()`/`.catch()` auto-injection | yes           | n/a         |
-| Nested write scope enforcement             | no (top-level only) | no     |
+| Nested write scope enforcement             | no (declare tenant filters in shapes instead) | no     |
 
 ---
 

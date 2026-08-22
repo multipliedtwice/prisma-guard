@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Documentation — prisma-guard</title>
+<meta name="description" content="prisma-guard documentation: input validation, query shape enforcement, and tenant isolation for Prisma." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307070b'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23b5f04a'/%3E%3C/svg%3E" />
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafbf4" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07070b" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="docs">
+<div class="noise"></div>
+
+<nav class="nav" id="nav">
+  <a class="nav-logo" href="./index.html"><span class="dot"></span>prisma-guard</a>
+  <div class="nav-links">
+    <a href="./docs.html" class="active">Docs</a>
+    <a href="#security-model" class="nav-hide">Security model</a>
+    <a href="./index.html#compare" class="nav-hide">Compare</a>
+    <a class="nav-cta nav-hide" href="https://github.com/multipliedtwice/prisma-guard">GitHub</a>
+  </div>
+  <button class="menu-btn" id="menuBtn" aria-label="Menu">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+</nav>
+
+<div class="docs-shell">
+
+<aside class="sidebar" id="sidebar">
+  <div class="side-group">
+    <div class="side-title">Start</div>
+    <a class="side-link" href="#introduction">Introduction</a>
+    <a class="side-link" href="#quick-start">Quick start</a>
+    <a class="side-link" href="#install-notes">Installation notes</a>
+  </div>
+  <div class="side-group">
+    <div class="side-title">Shapes</div>
+    <a class="side-link" href="#data-shapes">Data shapes</a>
+    <a class="side-link" href="#force-helper">The force() helper</a>
+    <a class="side-link" href="#where-dsl">Where DSL</a>
+    <a class="side-link" href="#combinators">Logical combinators</a>
+    <a class="side-link" href="#relation-filters">Relation filters</a>
+    <a class="side-link" href="#read-args">take · orderBy · cursor</a>
+  </div>
+  <div class="side-group">
+    <div class="side-title">Tenant isolation</div>
+    <a class="side-link" href="#tenant-isolation">Two layers</a>
+    <a class="side-link" href="#scope-backstop">Scope backstop</a>
+    <a class="side-link" href="#findunique">findUnique behavior</a>
+    <a class="side-link" href="#multi-root">Multi-root scope</a>
+  </div>
+  <div class="side-group">
+    <div class="side-title">Advanced</div>
+    <a class="side-link" href="#named-shapes">Named shapes &amp; callers</a>
+    <a class="side-link" href="#ctx-shapes">Context-dependent shapes</a>
+    <a class="side-link" href="#relation-writes">Relation writes</a>
+    <a class="side-link" href="#projections">Projections</a>
+    <a class="side-link" href="#resolve-api">resolve()</a>
+    <a class="side-link" href="#output-shaping">Output shaping</a>
+  </div>
+  <div class="side-group">
+    <div class="side-title">Reference</div>
+    <a class="side-link" href="#generator-config">Generator config</a>
+    <a class="side-link" href="#zod-directives">@zod directives</a>
+    <a class="side-link" href="#errors">Error handling</a>
+    <a class="side-link" href="#security-model">Security model</a>
+    <a class="side-link" href="#limitations">Limitations</a>
+  </div>
+</aside>
+
+<main class="docs-content">
+
+<h1 id="introduction">Documentation</h1>
+<p class="doc-lead">Schema-driven security layer for Prisma. Input validation, query shape enforcement, and tenant isolation — generated from your schema, enforced in one chain.</p>
+
+<p>prisma-guard prevents three classes of backend mistakes:</p>
+<ul>
+  <li><strong>invalid input</strong> reaching Prisma</li>
+  <li><strong>unsafe or overly broad query shapes</strong> — client-controlled include chains that traverse into sensitive fields</li>
+  <li><strong>missing tenant filters</strong> in multi-tenant systems</li>
+</ul>
+
+<p>It is focused on <strong>data boundaries</strong>, not RBAC. Role-based access control is intentionally out of scope.</p>
+
+<hr class="sep" />
+
+<h2 id="quick-start">Quick start</h2>
+
+<h3>1. Add the generator</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="prisma">generator guard {
+  provider = "prisma-guard"
+  output   = "generated/guard"
+}</code></pre></div>
+
+<h3>2. Generate</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="bash">npx prisma generate</code></pre></div>
+<p>This emits a ready-to-use <code>client.ts</code> with all type mappings and a pre-wired guard instance.</p>
+
+<h3>3. Set up the Prisma client</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">import { AsyncLocalStorage } from 'node:async_hooks'
+import { PrismaClient } from '@prisma/client'
+import { guard } from './generated/guard/client'
+
+const store = new AsyncLocalStorage&lt;{ tenantId: string }&gt;()
+
+const prisma = new PrismaClient().$extends(
+  guard.extension(() =&gt; ({
+    Tenant: store.getStore()?.tenantId,
+  }))
+)</code></pre></div>
+<p>The extension is the automatic scope <strong>backstop</strong>: it injects scope foreign keys on creates, rejects unsafe scoped <code>findUnique</code>, and fails closed when tenant context is missing. Keep it enabled even when you declare tenant filters in shapes.</p>
+
+<h3>4. Provide request context</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await store.run({ tenantId }, async () =&gt; {
+  await handler()
+})</code></pre></div>
+
+<h3>5. Enforce tenants in the shape (multi-tenant)</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">import { force } from 'prisma-guard'
+
+await prisma.project
+  .guard((ctx) =&gt; ({
+    where: { tenantId: { equals: force(ctx.Tenant) } },
+    select: { id: true, title: true },
+  }))
+  .findMany(req.body)</code></pre></div>
+<p>Tenant filters written in the shape apply at the top level and inside every nested to-many include the shape exposes. They are visible in code review, greppable, and cannot be widened by client input.</p>
+
+<h3>6. Use it</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">// validated create — only title passes, @zod chains apply
+await prisma.project
+  .guard({ data: { title: true } })
+  .create({ data: req.body })
+
+// restricted read — only title filter, max 100 rows
+await prisma.project
+  .guard({
+    where: { title: { contains: true } },
+    orderBy: { title: true },
+    take: { max: 50, default: 20 },
+  })
+  .findMany(req.body)</code></pre></div>
+
+<h2 id="install-notes">Installation notes</h2>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="bash">npm install prisma-guard zod @prisma/client</code></pre></div>
+<ul>
+  <li>Peer dependencies: <code>zod ^4</code>, <code>@prisma/client ^6 || ^7</code></li>
+  <li>Both must be installed before <code>prisma generate</code> — the generator validates <code>@zod</code> directives against real Zod schemas</li>
+  <li>Generated output is TypeScript; a TS-capable build pipeline is required</li>
+  <li><code>importStyle = "auto"</code> reads your nearest tsconfig/package.json to pick extensionless, <code>.js</code>, or <code>.ts</code> imports — set it explicitly if auto-detection does not match your build</li>
+</ul>
+
+<hr class="sep" />
+
+<h2 id="data-shapes">Data shapes</h2>
+<p>Each field in a <code>data</code> shape accepts these value types:</p>
+<table class="doc-table">
+  <tr><th>Value</th><th>Meaning</th></tr>
+  <tr><td><code>true</code></td><td>client may provide this value; @zod chains apply automatically</td></tr>
+  <tr><td>literal value</td><td>server forces this value; client cannot override it</td></tr>
+  <tr><td><code>force(value)</code></td><td>server forces this value; required when the literal is <code>true</code></td></tr>
+  <tr><td><code>(base) =&gt; schema</code></td><td>client may provide; function refines the base Zod type (replaces @zod chains)</td></tr>
+  <tr><td><code>unsupported()</code></td><td>explicitly omit an <code>Unsupported(...)</code> Prisma field from client input</td></tr>
+</table>
+
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.project
+  .guard({
+    data: {
+      title: (base) =&gt; base.min(1, 'Title required').max(200),
+      status: true,
+      createdBy: currentUserId,
+      isActive: force(true),
+    },
+  })
+  .create({ data: req.body })</code></pre></div>
+
+<p>For creates, guard validates that every required field without defaults is accounted for — client-allowed, forced, scope FK, or carrying a <code>@zod .default(...) / .catch(...)</code> directive. Missing fields throw <code>ShapeError</code> at shape evaluation time.</p>
+
+<p>In update mode all data fields are optional. Bulk mutations (<code>updateMany</code>, <code>deleteMany</code>) require a where shape and reject empty resolved wheres — unconstrained bulk writes cannot happen by accident.</p>
+
+<h3 id="force-helper">The force() helper</h3>
+<p><code>true</code> always means client-controlled. When you need to force a boolean to literally <code>true</code>, wrap it:</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">data:  { isActive: true }         // client-controlled
+data:  { isActive: false }        // forced to false
+data:  { isActive: force(true) }  // forced to true
+
+where: { published: { equals: true },        // client-controlled
+         isDeleted: { equals: false } }      // forced to false</code></pre></div>
+
+<hr class="sep" />
+
+<h2 id="where-dsl">Where DSL</h2>
+<p>A Prisma-compatible subset. All standard scalar operators are supported: <code>equals</code>, <code>not</code>, <code>contains</code>, <code>startsWith</code>, <code>endsWith</code>, <code>in</code>, <code>notIn</code>, <code>gt</code>, <code>gte</code>, <code>lt</code>, <code>lte</code>, <code>search</code> — plus <code>mode</code> for case-insensitive string filtering.</p>
+
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">where: {
+  // client controls the filter and the mode
+  title: { contains: true, mode: true },
+
+  // server forces case-insensitive matching
+  slug: { contains: true, mode: force('insensitive') },
+
+  // forced condition — always enforced
+  status: { equals: 'published' },
+}</code></pre></div>
+
+<p>Forced conditions merge two ways: inline into the operator object the client provided (required for <code>mode</code>), or as a separate AND branch. Conflicting forced values on the same field and operator throw <code>ShapeError</code> at construction time — ambiguous security configurations never silently degrade.</p>
+
+<h3 id="combinators">Logical combinators</h3>
+<p><code>AND</code>, <code>OR</code>, <code>NOT</code> are supported with strict rules:</p>
+<ul>
+  <li>client arrays must contain at least one element — <code>{ OR: [] }</code> is rejected</li>
+  <li>each member must carry at least one defined condition — <code>{ AND: [{}] }</code> is rejected</li>
+  <li>empty combinator definitions in shapes throw at construction time</li>
+  <li>forced values inside combinators are lifted to top-level AND constraints — they restrict, never broaden</li>
+</ul>
+
+<h3 id="relation-filters">Relation filters</h3>
+<p>To-many relations support <code>some</code>, <code>every</code>, <code>none</code>; to-one supports <code>is</code>, <code>isNot</code> (including <code>is: null</code> existence checks). Everything works recursively: operators, forced values, combinators, nested relations.</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.user
+  .guard({
+    where: {
+      posts: {
+        some: {
+          title: { contains: true },
+          status: { equals: 'published' },
+        },
+      },
+    },
+  })
+  .findMany(req.body)</code></pre></div>
+
+<h3 id="read-args">take · orderBy · cursor</h3>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">guard({
+  take: { max: 100, default: 25 },  // or shorthand: take: 50
+  orderBy: { createdAt: true, title: true },
+  skip: true,
+  cursor: { tenantId_slug: { tenantId: true, slug: true } },
+})</code></pre></div>
+<ul>
+  <li><code>take</code> is restricted to positive integers (no negative reverse pagination)</li>
+  <li><code>cursor</code> fields must cover a unique constraint — enforced at shape construction</li>
+  <li>config flags like <code>skip</code>/<code>orderBy</code> entries must be exactly <code>true</code> — anything else throws, so misconfiguration is never silently enabled</li>
+</ul>
+
+<hr class="sep" />
+
+<h2 id="tenant-isolation">Tenant isolation — two layers</h2>
+
+<p><strong>Layer 1 — primary: tenant filters in the shape.</strong> Declared with a context-dependent shape. This is the recommended mechanism for multi-tenant systems:</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">import { force } from 'prisma-guard'
+
+await prisma.project
+  .guard((ctx) =&gt; ({
+    where: { tenantId: { equals: force(ctx.Tenant) } },
+    include: {
+      tasks: {
+        where: { tenantId: { equals: force(ctx.Tenant) } },
+        select: { id: true, title: true },
+      },
+    },
+  }))
+  .findMany(req.body)</code></pre></div>
+<p>Filters written in the shape apply top-level and inside nested to-many includes. Visible in review, greppable, impossible for the client to widen.</p>
+
+<p><strong>Layer 2 — backstop: automatic scope injection.</strong> Independently of shapes, the extension injects tenant predicates into top-level operations on models marked with <code>@scope-root</code> ancestry:</p>
+
+<h3 id="scope-backstop">What the backstop covers</h3>
+<ul>
+  <li>all top-level reads, aggregates, groupBy</li>
+  <li>all top-level creates — scope FK injected into data</li>
+  <li>unique mutations — scope condition merged into where</li>
+  <li>bulk mutations — scope merged into where, FK stripped from data</li>
+  <li>upsert — where merge + create injection + update strip</li>
+</ul>
+
+<h3>What it does not cover</h3>
+<ul>
+  <li>scope root model delegates themselves — mark them, but protect their routes explicitly</li>
+  <li>nested reads via include/select — constrain them with forced where in the shape (to-many only)</li>
+  <li>nested relation writes — see below</li>
+  <li><code>$queryRaw</code> / <code>$executeRaw</code> — raw SQL bypasses everything</li>
+</ul>
+
+<div class="callout warn"><span class="co-tag">Important</span>
+<b>Nested writes bypass the scope backstop.</b> Prisma extension hooks fire on top-level operations only. For relation writes on scoped models, enforce tenant boundaries via database constraints (RLS, FKs, triggers) or application-level checks — or constrain what you expose through shapes.
+</div>
+
+<h3 id="findunique">findUnique behavior</h3>
+<p>Scoped <code>findUnique</code> cannot receive a where filter in Prisma extension mode. Two modes:</p>
+<ul>
+  <li><code>findUniqueMode = "reject"</code> (default, recommended) — operation rejected, use <code>findFirst</code> so scope applies at query time</li>
+  <li><code>"verify"</code> — runs then verifies result against scope; weaker, post-read, TOCTOU window</li>
+</ul>
+
+<h3 id="multi-root">Multi-root scope</h3>
+<p>A model can be scoped by multiple roots (e.g. Tenant + Organization). Reads combine both conditions with AND; missing-context policy follows <code>onMissingScopeContext</code>. On writes all roots must be present — missing roots always throw <code>PolicyError</code>.</p>
+
+<hr class="sep" />
+
+<h2 id="named-shapes">Named shapes and caller routing</h2>
+<p>Different consumers need different boundaries for the same model. Route them:</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.project
+  .guard({
+    '/admin/projects': {
+      where: { title: { contains: true }, status: { equals: true } },
+      take: { max: 100 },
+    },
+    '/public/projects': {
+      where: { title: { contains: true } },
+      take: { max: 20, default: 10 },
+    },
+    default: { where: { title: { contains: true } } },
+  }, req.headers['x-caller'])
+  .findMany(req.body)</code></pre></div>
+<ul>
+  <li>parameterized patterns: <code>/org/:orgId/users</code> — exact match wins over patterns; ambiguous matches throw</li>
+  <li>caller resolution order: explicit argument → <code>contextFn().caller</code> → none</li>
+  <li>fail-closed: unmatched caller uses <code>default</code> or throws <code>CallerError</code>; a <code>caller</code> field inside the request body is rejected</li>
+</ul>
+
+<h2 id="ctx-shapes">Context-dependent shapes</h2>
+<p>Shapes can be functions receiving the guard context — same context used for scoping and caller routing:</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.project
+  .guard((ctx) =&gt; ({
+    where: { tenantId: { equals: ctx.Tenant } },
+    take: ctx.role === 'admin' ? { max: 100 } : { max: 20 },
+  }))
+  .findMany(req.body)</code></pre></div>
+<p>The context function must return a plain object — invalid returns throw <code>PolicyError</code>. A key matching a scope root name with a non-primitive value also throws immediately: context bugs cannot silently weaken scope.</p>
+
+<h2 id="relation-writes">Relation writes</h2>
+<p>Data shapes support relation fields with per-operation configs. All 11 Prisma nested write operations are supported:</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.post
+  .guard({
+    data: {
+      title: true,
+      tags: {
+        connect: { id: true },
+        disconnect: { id: true },
+      },
+    },
+    where: { id: true },
+  })
+  .update({
+    data: {
+      title: 'Updated',
+      tags: { connect: [{ id: 'tag1' }] },
+    },
+    where: { id: 'post1' },
+  })</code></pre></div>
+<div class="callout warn"><span class="co-tag">Security</span>
+Nested writes bypass the scope backstop entirely: no FK injection on nested creates, no tenant filtering on nested updates/deletes/connects. Unconstrained destructive nested writes are rejected as unsafe boundary configuration. For scoped models prefer connect/disconnect over create/delete, validate ownership in application code, or rely on database constraints.
+</div>
+
+<h2 id="projections">Projections</h2>
+<p><strong>Reads:</strong> a shape's select/include is both whitelist and default — if the client omits projection, the shape's is synthesized and passed to Prisma. Client-provided projections can narrow inside the whitelist, never widen.</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">await prisma.company
+  .guard({
+    where: { id: { equals: true } },
+    select: {
+      id: true, name: true,
+      posts: {
+        select: { id: true, title: true },
+        take: { max: 10, default: 5 },
+        where: { isDeleted: { equals: false } },
+      },
+    },
+  })
+  .findFirst({ where: { id: { equals: 'abc' } } })</code></pre></div>
+<p><strong>Mutations:</strong> projection shapes validate client-requested projections; enable <code>enforceProjection</code> to also apply them when the client omits them. Batch methods return BatchPayload and reject projections.</p>
+
+<h2 id="resolve-api">resolve()</h2>
+<p>Read-planning helper: resolves the same shape boundary without executing a query. Returns the concrete shape, normalized body, effective read body (with synthesized projection), matched caller key, and whether the matched shape was dynamic. Rejects write keys. Used by generated routers and adapters that need the same resolution as real guarded methods.</p>
+
+<h2 id="output-shaping">Output shaping</h2>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="ts">const userOutput = guard.model('User', {
+  pick: ['id', 'email', 'name'],
+  include: { profile: { pick: ['bio'] } },
+  strict: true,
+})</code></pre></div>
+<p>Validates returned data using base Prisma types (input @zod rules are not re-applied). Non-strict by default (unknown fields stripped); <code>strict: true</code> rejects unknowns. Include depth defaults to 5.</p>
+
+<hr class="sep" />
+
+<h2 id="generator-config">Generator configuration</h2>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="prisma">generator guard {
+  provider                = "prisma-guard"
+  output                  = "generated/guard"
+
+  onInvalidZod            = "error" // error | warn
+  onAmbiguousScope        = "error" // error | warn | ignore
+  onMissingScopeContext   = "error" // error | warn | ignore
+  findUniqueMode          = "reject" // reject | verify
+  onScopeRelationWrite    = "error" // error | warn | strip
+
+  strictDecimal           = "false" // true | false
+  enforceProjection       = "false" // true | false
+  typedGuardShapes        = "true"  // true | false
+  typedGuardRelationDepth = "1"     // 0 | 1 | 2 | 3
+
+  importStyle             = "auto"  // auto | none | js | ts
+  runtimeImportPath       = "prisma-guard"
+}</code></pre></div>
+
+<div class="callout"><span class="co-tag">Recommended production</span>
+Set <code>onAmbiguousScope</code>, <code>onMissingScopeContext</code>, <code>onScopeRelationWrite</code> to <code>"error"</code>, <code>findUniqueMode</code> to <code>"reject"</code>, and consider <code>strictDecimal = "true"</code> and <code>enforceProjection = "true"</code>.
+</div>
+
+<h2 id="zod-directives">@zod directives</h2>
+<p>Field-level validation declared in the Prisma schema, validated at generate-time (syntax, method allowlist, argument arity, actual Zod schema construction):</p>
+<div class="codeblock"><button class="copy-btn">copy</button><pre><code data-lang="prisma">model User {
+  id    String @id @default(cuid())
+  /// @zod .email().max(255)
+  email String
+}</code></pre></div>
+<p>Supported method families: string validations (<code>email</code>, <code>url</code>, <code>uuid</code>, <code>regex</code>, <code>datetime</code>, …), number validations (<code>int</code>, <code>positive</code>, <code>gte</code>, …), array validations (<code>min</code>, <code>max</code>, <code>nonempty</code>), modifiers (<code>optional</code>, <code>nullable</code>, <code>default</code>, <code>catch</code>). Chain order matters: type-changing modifiers must come last. Inline refine functions replace @zod chains entirely — refine is a full override.</p>
+
+<h2 id="errors">Error handling</h2>
+<table class="doc-table">
+  <tr><th>Error</th><th>status</th><th>code</th><th>Raised for</th></tr>
+  <tr><td><code>ShapeError</code></td><td>400</td><td><code>SHAPE_INVALID</code></td><td>invalid shape config, body violations, validation failures</td></tr>
+  <tr><td><code>CallerError</code></td><td>400</td><td><code>CALLER_UNKNOWN</code></td><td>missing, unknown, or ambiguous caller</td></tr>
+  <tr><td><code>PolicyError</code></td><td>403</td><td><code>POLICY_DENIED</code></td><td>denied scope, missing tenant context, invalid context</td></tr>
+  <tr><td><code>ZodError</code></td><td>—</td><td>—</td><td>lower-level parse APIs (unless <code>wrapZodErrors: true</code>)</td></tr>
+</table>
+<p>All guard errors carry <code>status</code> and <code>code</code> for direct HTTP mapping. Prisma errors propagate unmodified.</p>
+
+<h2 id="security-model">Security model</h2>
+<table class="doc-table">
+  <tr><th>Layer</th><th>Purpose</th></tr>
+  <tr><td>Input boundary</td><td>prevents invalid input</td></tr>
+  <tr><td>Query boundary</td><td>restricts allowed query shapes</td></tr>
+  <tr><td>Tenant filters in shapes</td><td>primary tenant enforcement — top level and nested to-many includes</td></tr>
+  <tr><td>Scope extension</td><td>automatic backstop for top-level operations</td></tr>
+</table>
+
+<h2 id="limitations">Limitations</h2>
+<ul>
+  <li><code>$queryRaw</code> / <code>$executeRaw</code> bypass all guard protections</li>
+  <li>scope root models are not self-scoped — protect their routes explicitly</li>
+  <li>nested writes are not scope-intercepted — use DB constraints or app-level checks</li>
+  <li>nested reads via include need explicit forced where (to-many relations only; Prisma does not support where on to-one includes)</li>
+  <li>scoped findUnique is rejected by default (use findFirst)</li>
+  <li>@zod on list fields applies to the array, not elements</li>
+  <li>Decimal accepts numbers by default; enable strictDecimal for money paths</li>
+</ul>
+
+<div class="pager">
+  <a href="./index.html"><small>← Back</small><b>Landing page</b></a>
+  <a class="next" href="https://github.com/multipliedtwice/prisma-guard"><small>Source</small><b>GitHub repository →</b></a>
+</div>
+
+</main>
+</div>
+
+<footer class="site">
+  <span>prisma-guard · MIT</span>
+  <div class="footer-links">
+    <a href="./index.html">Home</a>
+    <a href="https://github.com/multipliedtwice/prisma-guard">GitHub</a>
+    <a href="https://www.npmjs.com/package/prisma-guard">npm</a>
+  </div>
+</footer>
+
+<script src="./main.js"></script>
+</body>
+</html>

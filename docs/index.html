@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>prisma-guard — schema-driven security layer for Prisma</title>
+<meta name="description" content="Generate input validation, query shape enforcement, and tenant isolation directly from your Prisma schema." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307070b'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23b5f04a'/%3E%3C/svg%3E" />
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafbf4" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#07070b" />
+<link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="home">
+<div class="noise"></div>
+
+<nav class="nav" id="nav">
+  <a class="nav-logo" href="./index.html"><span class="dot"></span>prisma-guard</a>
+  <div class="nav-links">
+    <a href="./docs.html">Docs</a>
+    <a href="./docs.html#security-model" class="nav-hide">Security model</a>
+    <a href="#compare" class="nav-hide">Compare</a>
+    <a class="nav-cta" href="https://www.npmjs.com/package/prisma-guard">npm i prisma-guard</a>
+  </div>
+  <button class="menu-btn" id="menuBtn" aria-label="Menu">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+</nav>
+
+<header class="hero">
+  <div class="hero-bg"><i class="glow-a"></i><i class="glow-b"></i><i class="grid"></i></div>
+  <div class="hero-inner">
+    <span class="hero-badge reveal"><span class="pulse"></span>v1.34 · Prisma 6 &amp; 7 · Zod v4</span>
+    <h1 class="display reveal">Your schema is<br />the <span class="grad">security policy.</span></h1>
+    <p class="hero-sub reveal">
+      <strong>prisma-guard</strong> turns your Prisma schema into a runtime data boundary:
+      input validation, query shape enforcement, and tenant isolation — declared in one
+      <strong>.guard(shape)</strong> chain instead of scattered middleware.
+    </p>
+    <div class="hero-actions reveal">
+      <a class="btn btn-primary" href="./docs.html">Read the docs</a>
+      <a class="btn btn-ghost" href="./docs.html#quick-start">Quick start →</a>
+    </div>
+    <div class="hero-meta reveal">
+      <span><b>716+</b> unit tests</span>
+      <span><b>Prisma 6 | 7</b> CI matrix</span>
+      <span><b>Node 20 / 22</b></span>
+      <span><b>MIT</b> license</span>
+    </div>
+
+    <div class="terminal reveal">
+      <div class="term-bar"><i></i><i></i><i></i><em>projects.router.ts</em></div>
+      <div class="term-body"><pre><span class="c-com">// one chain: validate + enforce shape + tenant filter</span>
+<span class="c-key">await</span> prisma.project
+  .<span class="c-fn">guard</span>((ctx) =&gt; ({
+    where: { tenantId: { equals: <span class="c-fn">force</span>(ctx.Tenant) } },
+    select: { id: <span class="c-key">true</span>, title: <span class="c-key">true</span> },
+    take: { max: <span class="c-num">50</span>, default: <span class="c-num">20</span> },
+  }))
+  .<span class="c-fn">findMany</span>(req.body)</pre></div>
+    </div>
+  </div>
+</header>
+
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>input validation</span><span>query shape enforcement</span><span>tenant isolation</span><span>fail-closed by default</span><span>@zod directives</span><span>caller routing</span><span>forced values</span><span>projection auto-apply</span>
+    <span>input validation</span><span>query shape enforcement</span><span>tenant isolation</span><span>fail-closed by default</span><span>@zod directives</span><span>caller routing</span><span>forced values</span><span>projection auto-apply</span>
+  </div>
+</div>
+
+<section class="section" id="problems">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="kicker">Why this exists</span>
+      <h2 class="h2">Three mistakes ship to production every week.</h2>
+      <p class="lead">prisma-guard prevents all three classes at the data layer — not per route, not per developer's discipline.</p>
+    </div>
+    <div class="problems">
+      <article class="p-card reveal">
+        <span class="p-num">RISK / 01</span>
+        <h3>Invalid input reaches Prisma</h3>
+        <p>The client controls the entire payload. Unknown fields, wrong types, mass assignment.</p>
+        <code>prisma.user.create({ data: req.body })</code>
+      </article>
+      <article class="p-card reveal">
+        <span class="p-num">RISK / 02</span>
+        <h3>Dangerous query shapes</h3>
+        <p>A client-controlled include chain traverses relations and selects sensitive fields from unrelated models.</p>
+        <code>include: { author: { select: { passwordHash: true } } }</code>
+      </article>
+      <article class="p-card reveal">
+        <span class="p-num">RISK / 03</span>
+        <h3>Missing tenant filters</h3>
+        <p>If projectId belongs to another tenant, data leaks across the boundary you never enforced.</p>
+        <code>where: { id: { equals: projectId } }</code>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="background: var(--bg-2);" id="features">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="kicker">What you get</span>
+      <h2 class="h2">A boundary layer, generated from your schema.</h2>
+    </div>
+    <div class="features">
+      <article class="f-card reveal">
+        <div class="f-icon">{}</div>
+        <h3>Input validation</h3>
+        <p>Zod schemas generated from Prisma types. @zod directives in the schema are validated at generate-time and applied automatically.</p>
+      </article>
+      <article class="f-card reveal">
+        <div class="f-icon">⇢</div>
+        <h3>Query shape enforcement</h3>
+        <p>Whitelist where filters, orderBy, include trees and take limits. Everything else is rejected with a typed ShapeError.</p>
+      </article>
+      <article class="f-card reveal">
+        <div class="f-icon">◈</div>
+        <h3>Tenant isolation</h3>
+        <p>Tenant filters declared in context-dependent shapes as primary enforcement. Automatic scope injection runs underneath as a top-level backstop.</p>
+      </article>
+      <article class="f-card reveal">
+        <div class="f-icon">@</div>
+        <h3>Caller routing</h3>
+        <p>Named shapes route requests by caller with parameterized patterns. Fail-closed: unmatched callers throw unless a default exists.</p>
+      </article>
+      <article class="f-card reveal">
+        <div class="f-icon">▤</div>
+        <h3>Projection control</h3>
+        <p>Read projections auto-apply as defaults and whitelists. Forced where conditions reach nested to-many includes.</p>
+      </article>
+      <article class="f-card reveal">
+        <div class="f-icon">⊘</div>
+        <h3>Fail closed</h3>
+        <p>Ambiguous scope, vacuous filters, empty combinators, unconstrained bulk deletes — rejected at construction or runtime. Never silently ignored.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="pipeline">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="kicker">How it works</span>
+      <h2 class="h2">One chain between the request and the database.</h2>
+    </div>
+    <div class="pipeline reveal">
+      <div class="pipe-node"><b>Client request</b><span>req.body</span></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node hot"><b>.guard(shape)</b><span>validate + enforce</span></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node hot"><b>tenant filters</b><span>from the shape</span></div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-node"><b>scope backstop</b><span>extension, top-level</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="background: var(--bg-2);" id="showcase">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="kicker">The API</span>
+      <h2 class="h2">Shapes read like security policy.</h2>
+      <p class="lead">true means client-controlled. Literals and force() mean server-enforced. Functions refine the Zod type. That is the whole language.</p>
+    </div>
+    <div class="reveal">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="t-create">create</button>
+        <button class="tab" data-tab="t-read">findMany</button>
+        <button class="tab" data-tab="t-tenant">tenant isolation</button>
+        <button class="tab" data-tab="t-update">update</button>
+      </div>
+      <div class="terminal">
+        <div class="term-bar"><i></i><i></i><i></i><em>TypeScript</em></div>
+        <div class="term-body">
+          <pre class="tab-panel active" id="t-create"><span class="c-key">import</span> { force } <span class="c-key">from</span> <span class="c-str">'prisma-guard'</span>
+
+<span class="c-key">await</span> prisma.project
+  .<span class="c-fn">guard</span>({
+    data: {
+      title: (base) =&gt; base.<span class="c-fn">min</span>(<span class="c-num">1</span>, <span class="c-str">'Title required'</span>).<span class="c-fn">max</span>(<span class="c-num">200</span>),
+      status: <span class="c-key">true</span>,              <span class="c-com">// client-controlled, @zod chains apply</span>
+      createdBy: currentUserId,   <span class="c-com">// forced server value</span>
+      isActive: <span class="c-fn">force</span>(<span class="c-key">true</span>),      <span class="c-com">// forced boolean</span>
+    },
+  })
+  .<span class="c-fn">create</span>({ data: req.body })</pre>
+          <pre class="tab-panel" id="t-read"><span class="c-key">await</span> prisma.project
+  .<span class="c-fn">guard</span>({
+    where: { title: { contains: <span class="c-key">true</span> } },  <span class="c-com">// only allowed filter</span>
+    orderBy: { createdAt: <span class="c-key">true</span>, title: <span class="c-key">true</span> },
+    take: { max: <span class="c-num">100</span>, default: <span class="c-num">25</span> },
+    select: {
+      id: <span class="c-key">true</span>, title: <span class="c-key">true</span>,
+      tasks: { select: { id: <span class="c-key">true</span> }, take: { max: <span class="c-num">10</span> } },
+    },
+  })
+  .<span class="c-fn">findMany</span>(req.body)
+<span class="c-com">// client omits select? the shape's projection is applied automatically</span></pre>
+          <pre class="tab-panel" id="t-tenant"><span class="c-com">// primary enforcement: declare tenants in the shape</span>
+<span class="c-key">const</span> prisma = <span class="c-key">new</span> <span class="c-fn">PrismaClient</span>().<span class="c-fn">$extends</span>(
+  guard.<span class="c-fn">extension</span>(() =&gt; ({ Tenant: store.<span class="c-fn">getStore</span>()?.tenantId }))
+)
+
+<span class="c-key">await</span> prisma.project
+  .<span class="c-fn">guard</span>((ctx) =&gt; ({
+    where: { tenantId: { equals: <span class="c-fn">force</span>(ctx.Tenant) } },
+    include: {
+      tasks: { where: { tenantId: { equals: <span class="c-fn">force</span>(ctx.Tenant) } } },
+    },
+  }))
+  .<span class="c-fn">findMany</span>(req.body)
+<span class="c-com">// scope extension still runs as a top-level backstop</span></pre>
+          <pre class="tab-panel" id="t-update"><span class="c-key">await</span> prisma.post
+  .<span class="c-fn">guard</span>({
+    data: { title: <span class="c-key">true</span> },
+    where: {
+      id: <span class="c-key">true</span>,                    <span class="c-com">// unique selector from client</span>
+      authorId: <span class="c-fn">force</span>(userId),     <span class="c-com">// permission check merged into where</span>
+    },
+  })
+  .<span class="c-fn">update</span>({
+    data: req.body.data,
+    where: { id: req.params.id },
+  })
+<span class="c-com">// final query is constrained by both id and authorId</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="compare">
+  <div class="section-inner">
+    <div class="section-head reveal">
+      <span class="kicker">Comparison</span>
+      <h2 class="h2">Raw Prisma gives you everything. Including the footguns.</h2>
+    </div>
+    <div class="compare-wrap reveal">
+      <table class="compare">
+        <thead><tr><th>Feature</th><th>prisma-guard</th><th>raw Prisma</th></tr></thead>
+        <tbody>
+          <tr><td>Input validation</td><td><span class="yes">yes</span></td><td><span class="no">no</span></td></tr>
+          <tr><td>Query shape enforcement</td><td><span class="yes">yes</span></td><td><span class="no">no</span></td></tr>
+          <tr><td>Tenant filters via context-dependent shapes</td><td><span class="yes">yes</span></td><td><span class="mid">manual</span></td></tr>
+          <tr><td>Nested read tenant filtering (to-many, via shapes)</td><td><span class="yes">yes</span></td><td><span class="mid">manual</span></td></tr>
+          <tr><td>Automatic scope injection backstop (top-level)</td><td><span class="yes">yes</span></td><td><span class="no">no</span></td></tr>
+          <tr><td>Bulk mutation safety</td><td><span class="mid">required where</span></td><td><span class="no">not handled</span></td></tr>
+          <tr><td>Vacuous combinator rejection</td><td><span class="yes">yes</span></td><td><span class="no">not handled</span></td></tr>
+          <tr><td>Create completeness validation</td><td><span class="yes">yes</span></td><td><span class="no">no</span></td></tr>
+          <tr><td>Nested write scope enforcement</td><td><span class="mid">declare tenant filters in shapes</span></td><td><span class="no">no</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="cta" id="cta">
+  <span class="kicker reveal">Get started</span>
+  <h2 class="reveal">Stop trusting<br /><span class="grad">the request.</span></h2>
+  <p class="reveal">Install, add one generator block, run prisma generate. Your boundary layer compiles with your types.</p>
+  <div class="cta-actions reveal">
+    <a class="btn btn-primary" href="./docs.html#quick-start">Quick start</a>
+    <a class="btn btn-ghost" href="https://github.com/multipliedtwice/prisma-guard">GitHub</a>
+  </div>
+</section>
+
+<footer class="site">
+  <span>prisma-guard · MIT</span>
+  <div class="footer-links">
+    <a href="./docs.html">Docs</a>
+    <a href="https://github.com/multipliedtwice/prisma-guard">GitHub</a>
+    <a href="https://www.npmjs.com/package/prisma-guard">npm</a>
+  </div>
+</footer>
+
+<script src="./main.js"></script>
+</body>
+</html>

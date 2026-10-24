@@ -3,27 +3,25 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SMOKE_DIR="$REPO_ROOT/test/smoke"
+SMOKE_WORK="$(mktemp -d "${TMPDIR:-/tmp}/prisma-guard-smoke.XXXXXX")"
+trap 'rm -rf "$SMOKE_WORK"' EXIT
 
 cd "$REPO_ROOT"
-
-echo "==> clean"
-rm -f "$SMOKE_DIR"/prisma-guard-*.tgz
-rm -rf "$SMOKE_DIR/node_modules"
-rm -rf "$SMOKE_DIR/generated"
 
 echo "==> build"
 npm run build
 
 echo "==> pack"
-npm pack --pack-destination "$SMOKE_DIR"
+TARBALL="$(npm pack --pack-destination "$SMOKE_WORK" --silent)"
 
-cd "$SMOKE_DIR"
+cp "$SMOKE_DIR"/{package.json,package-lock.json,prisma.config.ts,schema.prisma,smoke.ts,tsconfig.json} "$SMOKE_WORK/"
+cd "$SMOKE_WORK"
 
 echo "==> install deps"
-npm install
+npm ci
 
 echo "==> install tarball"
-npm install ./prisma-guard-*.tgz
+npm install --no-save --package-lock=false "./$TARBALL"
 
 echo "==> prisma generate"
 npx prisma generate --schema schema.prisma

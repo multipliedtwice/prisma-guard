@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@prisma/client": "^7.4.0",
+    "@prisma/client": "^7.10.1",
     "@types/node": "^22.0.0",
-    "prisma": "^7.4.0",
-    "prisma-guard": "file:prisma-guard-0.2.0.tgz",
+    "prisma": "^7.10.1",
+    "prisma-guard": "^1.36.0",
     "tsx": "^4.0.0",
     "typescript": "^5.9.0",
-    "zod": "^4.0.0"
+    "zod": "^4.6.6"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
   }
 }

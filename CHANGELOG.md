@@ -1,3 +1,10 @@
+## [1.36.1](https://github.com/multipliedtwice/prisma-guard/compare/v1.36.0...v1.36.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** patch vulnerable dependencies ([5bb7e23](https://github.com/multipliedtwice/prisma-guard/commit/5bb7e23459fad16e9838444cf83cf5eb6e33b6fb))
+
 # [1.36.0](https://github.com/multipliedtwice/prisma-guard/compare/v1.35.0...v1.36.0) (2026-08-22)
 
 
